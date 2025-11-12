@@ -6,6 +6,8 @@ dist/
 
 # Environment variables
 .env
+.env.local
+.env.*.local
 
 # IDE files
 .vscode/
@@ -20,6 +22,7 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # TypeScript cache
 *.tsbuildinfo
@@ -31,3 +34,7 @@ coverage/
 .cache/
 temp/
 tmp/
+
+# Package manager locks (we use pnpm)
+package-lock.json
+yarn.lock

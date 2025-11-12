@@ -1,0 +1,58 @@
+# Source files (only publish compiled dist/)
+src/
+spec/
+tmp/
+
+# Development files
+.env
+.env.*
+.env.example
+*.log
+
+# Testing and development
+coverage/
+.cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation (keep only essential ones)
+PROJECT_SUMMARY.md
+IMPLEMENTATION_REPORT.md
+USAGE_GUIDE.md
+
+# Config files for development only
+.prettierrc
+.eslintrc.json
+tsconfig.json
+
+# Keep these files
+!README.md
+!LICENSE
+!CHANGELOG.md
+!CLAUDE.md
+!AGENTS.md
+!package.json
+
+# Build artifacts we don't need
+*.tsbuildinfo
+.DS_Store
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock

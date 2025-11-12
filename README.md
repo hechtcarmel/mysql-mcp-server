@@ -22,38 +22,42 @@ A Model Context Protocol (MCP) server that provides LLMs with flexible, safe acc
 
 - Node.js 18 or higher
 - MySQL 5.7 or higher (or MariaDB 10.3+)
-- An MCP client (e.g., Claude Desktop)
+- Claude Desktop or another MCP client
 
-### Setup
+### Option 1: Install via npm (Recommended)
 
-1. Clone or download this repository:
+Coming soon once published to npm:
+
 ```bash
-git clone <repository-url>
+# Global installation
+npm install -g @hechtcarmel/mysql-mcp-server
+
+# Or with pnpm
+pnpm add -g @hechtcarmel/mysql-mcp-server
+```
+
+### Option 2: Install from Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/hechtcarmel/mysql-mcp-server.git
 cd mysql-mcp-server
 ```
 
 2. Install dependencies:
 ```bash
-npm install
+pnpm install
 ```
 
 3. Build the project:
 ```bash
-npm run build
+pnpm run build
 ```
 
-4. Create a `.env` file (copy from `.env.example`):
+4. (Optional) Create a `.env` file for local development:
 ```bash
 cp .env.example .env
-```
-
-5. Configure your MySQL connection in `.env`:
-```env
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=your_username
-MYSQL_PASSWORD=your_password
-MYSQL_ALLOW_WRITE=false
+# Edit .env with your MySQL credentials
 ```
 
 ## Configuration
@@ -89,19 +93,21 @@ MYSQL_ALLOW_WRITE=false
 
 ## Usage with Claude Desktop
 
-Add the server to your Claude Desktop configuration:
+### Configuration File Location
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-### Read-Only Mode (Recommended)
+### Method 1: Using Environment Variables (Inline)
+
+**Read-Only Mode (Recommended):**
 
 ```json
 {
   "mcpServers": {
     "mysql": {
-      "command": "node",
-      "args": ["/absolute/path/to/mysql-mcp-server/dist/index.js"],
+      "command": "mysql-mcp-server",
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
@@ -114,14 +120,13 @@ Add the server to your Claude Desktop configuration:
 }
 ```
 
-### Write Mode (Use with Caution)
+**Write Mode (Use with Caution):**
 
 ```json
 {
   "mcpServers": {
     "mysql": {
-      "command": "node",
-      "args": ["/absolute/path/to/mysql-mcp-server/dist/index.js"],
+      "command": "mysql-mcp-server",
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
@@ -134,7 +139,74 @@ Add the server to your Claude Desktop configuration:
 }
 ```
 
-After configuring, restart Claude Desktop to load the server.
+### Method 2: Using .env File (Recommended for Security)
+
+Create a `.env` file with your credentials:
+
+```bash
+# ~/.config/mysql-mcp/.env
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=your_username
+MYSQL_PASSWORD=your_password
+MYSQL_ALLOW_WRITE=false
+```
+
+Then reference it in Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "mysql-mcp-server",
+      "env": {
+        "MYSQL_ENV_FILE": "/Users/yourusername/.config/mysql-mcp/.env"
+      }
+    }
+  }
+}
+```
+
+**Benefits of using .env file:**
+- Keep credentials out of config file
+- Easier to manage multiple environments
+- Better security (file permissions)
+- Share config file without exposing credentials
+
+### Method 3: Install from Source
+
+If installed from source instead of npm:
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "node",
+      "args": ["/absolute/path/to/mysql-mcp-server/dist/index.js"],
+      "env": {
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
+      }
+    }
+  }
+}
+```
+
+### Activation
+
+After configuring:
+1. **Save** the config file
+2. **Restart Claude Desktop** completely (Quit and reopen)
+3. The MySQL server will appear in Claude's available tools
+
+### Verify Installation
+
+In Claude Desktop, you can verify the server is running by asking:
+
+```
+"What databases are available?"
+```
+
+Claude should access the `mysql://databases` resource and list your databases.
 
 ## Available Tools
 
@@ -366,12 +438,28 @@ mysql-mcp-server/
 - **Analyze with EXPLAIN**: Use `EXPLAIN` to understand query execution plans
 - **Monitor Timeouts**: Adjust `MYSQL_QUERY_TIMEOUT` if needed for complex queries
 
+## Documentation
+
+### For Users
+- **[README.md](README.md)** - Complete user documentation (this file)
+- **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Quick start guide with common patterns
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+
+### For AI Agents
+- **[CLAUDE.md](CLAUDE.md)** - Quick reference for Claude
+- **[AGENTS.md](AGENTS.md)** - Comprehensive integration guide for all AI agents
+
+### For Developers
+- **[spec/](spec/)** - Technical specifications and design documents
+- **[tmp/LOCAL_TESTING_GUIDE.md](tmp/LOCAL_TESTING_GUIDE.md)** - Local testing instructions
+- **[tmp/PUBLISHING_TO_NPM.md](tmp/PUBLISHING_TO_NPM.md)** - npm publishing guide
+
 ## Contributing
 
 Contributions are welcome! Please follow these guidelines:
 
 1. Follow TypeScript strict mode conventions
-2. Use consistent code formatting
+2. Run `pnpm run lint` and `pnpm run format` before committing
 3. Add tests for new features
 4. Update documentation for changes
 5. Follow MCP best practices
@@ -384,14 +472,15 @@ MIT License - see LICENSE file for details.
 
 - Built with [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk)
 - Uses [mysql2](https://github.com/sidorares/node-mysql2) for MySQL connectivity
-- Validation with [zod](https://github.com/colinhacks/zod)
+- Input validation with [zod](https://github.com/colinhacks/zod)
+- Environment management with [dotenv](https://github.com/motdotla/dotenv)
 
 ## Support
 
 For issues, questions, or contributions:
-- Create an issue on GitHub
-- Review the troubleshooting section
-- Check MCP documentation at [modelcontextprotocol.io](https://modelcontextprotocol.io)
+- **GitHub Issues**: [github.com/hechtcarmel/mysql-mcp-server/issues](https://github.com/hechtcarmel/mysql-mcp-server/issues)
+- **Documentation**: See files listed above
+- **MCP Protocol**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
 
 ---
 

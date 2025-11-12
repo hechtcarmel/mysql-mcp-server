@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
+import { config as dotenvConfig } from 'dotenv';
 import { ServerConfig, OperationMode } from '../types.js';
 import {
   DEFAULT_PORT,
@@ -45,32 +46,25 @@ function parseNumber(
 }
 
 /**
- * Load environment variables from a .env file if MYSQL_ENV_FILE is specified
+ * Load environment variables from a .env file
+ * Supports both MYSQL_ENV_FILE and default .env loading
  */
 function loadEnvFile(): void {
+  // If MYSQL_ENV_FILE is specified, load from that file
   const envFilePath = process.env.MYSQL_ENV_FILE;
-  if (!envFilePath) return;
-
-  try {
-    const envContent = readFileSync(envFilePath, 'utf-8');
-    const lines = envContent.split('\n');
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      // Skip empty lines and comments
-      if (!trimmed || trimmed.startsWith('#')) continue;
-
-      const match = trimmed.match(/^([^=]+)=(.*)$/);
-      if (match) {
-        const [, key, value] = match;
-        // Only set if not already defined in process.env
-        if (!process.env[key.trim()]) {
-          process.env[key.trim()] = value.trim();
-        }
+  if (envFilePath) {
+    try {
+      const result = dotenvConfig({ path: envFilePath, override: false });
+      if (result.error) {
+        throw result.error;
       }
+    } catch (error) {
+      throw new Error(`Failed to load .env file from ${envFilePath}: ${error}`);
     }
-  } catch (error) {
-    throw new Error(`Failed to load .env file from ${envFilePath}: ${error}`);
+  } else {
+    // Otherwise, try to load from default .env file in current directory
+    // This is useful when running locally or in development
+    dotenvConfig({ override: false });
   }
 }
 
