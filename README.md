@@ -4,6 +4,33 @@ A Model Context Protocol (MCP) server that provides LLMs with flexible, safe acc
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/@hechtcarmel/mysql-mcp-server.svg)](https://www.npmjs.com/package/@hechtcarmel/mysql-mcp-server)
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage with Claude Desktop](#usage-with-claude-desktop)
+- [Available Tools](#available-tools)
+- [MCP Resources](#mcp-resources)
+- [Operation Modes](#operation-modes)
+- [Security Considerations](#security-considerations)
+- [Troubleshooting](#troubleshooting)
+- [Performance Tips](#performance-tips)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+
+## Quick Start
+
+```bash
+# Install globally
+npm install -g @hechtcarmel/mysql-mcp-server
+
+# Add to Claude Desktop config
+# See "Usage with Claude Desktop" section below for configuration
+```
 
 ## Features
 
@@ -24,9 +51,7 @@ A Model Context Protocol (MCP) server that provides LLMs with flexible, safe acc
 - MySQL 5.7 or higher (or MariaDB 10.3+)
 - Claude Desktop or another MCP client
 
-### Option 1: Install via npm (Recommended)
-
-Coming soon once published to npm:
+### Install via npm (Recommended)
 
 ```bash
 # Global installation
@@ -36,26 +61,22 @@ npm install -g @hechtcarmel/mysql-mcp-server
 pnpm add -g @hechtcarmel/mysql-mcp-server
 ```
 
-### Option 2: Install from Source
+### Install from Source (Development)
 
-1. Clone the repository:
+For development or contributing:
+
 ```bash
+# Clone the repository
 git clone https://github.com/hechtcarmel/mysql-mcp-server.git
 cd mysql-mcp-server
-```
 
-2. Install dependencies:
-```bash
+# Install dependencies
 pnpm install
-```
 
-3. Build the project:
-```bash
+# Build the project
 pnpm run build
-```
 
-4. (Optional) Create a `.env` file for local development:
-```bash
+# (Optional) Create a .env file for local testing
 cp .env.example .env
 # Edit .env with your MySQL credentials
 ```
@@ -381,20 +402,29 @@ The query parser is designed to be resilient against bypass attempts:
 
 ## Development
 
-### Build from Source
+### Setup Development Environment
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Development mode (auto-reload)
-npm run dev
+pnpm run dev
 
 # Production build
-npm run build
+pnpm run build
 
-# Run built server
-npm start
+# Run linter
+pnpm run lint
+
+# Auto-fix linting issues
+pnpm run lint:fix
+
+# Format code
+pnpm run format
+
+# Check formatting
+pnpm run format:check
 ```
 
 ### Project Structure
@@ -456,13 +486,21 @@ mysql-mcp-server/
 
 ## Contributing
 
-Contributions are welcome! Please follow these guidelines:
+Contributions are welcome! Please follow these steps:
 
-1. Follow TypeScript strict mode conventions
-2. Run `pnpm run lint` and `pnpm run format` before committing
-3. Add tests for new features
-4. Update documentation for changes
-5. Follow MCP best practices
+1. **Fork the repository** and clone your fork
+2. **Install dependencies**: `pnpm install`
+3. **Create a feature branch**: `git checkout -b feature/your-feature`
+4. **Make your changes** following the code style:
+   - Follow TypeScript strict mode conventions
+   - Run `pnpm run lint` and `pnpm run format` before committing
+   - Add tests for new features when applicable
+   - Update documentation for user-facing changes
+5. **Test your changes**: `pnpm run build && pnpm run lint`
+6. **Commit your changes**: Use clear, descriptive commit messages
+7. **Push to your fork** and submit a pull request
+
+Please follow MCP best practices and ensure all CI checks pass.
 
 ## License
 
