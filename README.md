@@ -9,10 +9,12 @@ A Model Context Protocol (MCP) server that provides LLMs with flexible, safe acc
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+  - [Claude Code](#for-claude-code)
+  - [Cursor](#for-cursor)
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Usage with Claude Desktop](#usage-with-claude-desktop)
+- [Usage with MCP Clients](#usage-with-mcp-clients)
 - [Available Tools](#available-tools)
 - [MCP Resources](#mcp-resources)
 - [Operation Modes](#operation-modes)
@@ -24,13 +26,51 @@ A Model Context Protocol (MCP) server that provides LLMs with flexible, safe acc
 
 ## Quick Start
 
-```bash
-# Install globally
-npm install -g @hechtcarmel/mysql-mcp-server
+### Step 1: Create Your .env File
 
-# Add to Claude Desktop config
-# See "Usage with Claude Desktop" section below for configuration
+Create a `.env` file with your MySQL credentials. You can place it anywhere, for example:
+- `~/.config/mysql-mcp/.env` (recommended)
+- Or in your project directory
+
+```bash
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=your_username
+MYSQL_PASSWORD=your_password
+MYSQL_ALLOW_WRITE=false
 ```
+
+### Step 2: Configure Your MCP Client
+
+#### For Claude Code
+
+Run this command in Claude Code:
+
+```bash
+claude mcp add mysql-mcp --env MYSQL_ENV_FILE=/absolute/path/to/.env -- npx -y @hechtcarmel/mysql-mcp-server
+```
+
+Replace `/absolute/path/to/.env` with the actual path to your .env file.
+
+#### For Cursor
+
+Configure `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mysql-mcp": {
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
+      "env": {
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
+      }
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/.env` with the actual path to your .env file, then restart Cursor.
 
 ## Features
 
@@ -112,23 +152,91 @@ cp .env.example .env
 | `MYSQL_SSL_KEY` | Path to SSL client key |
 | `MYSQL_SSL_REJECT_UNAUTHORIZED` | Reject unauthorized certificates (`true` or `false`, default: `true`) |
 
-## Usage with Claude Desktop
+## Usage with MCP Clients
 
-### Configuration File Location
+This server works with any MCP-compatible client. Below are configuration examples for various clients.
 
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+### Claude Code
 
-### Method 1: Using Environment Variables (Inline)
-
-**Read-Only Mode (Recommended):**
+Open MCP settings via **Command Palette → MCP: Edit User MCP Settings** and add:
 
 ```json
 {
   "mcpServers": {
     "mysql": {
-      "command": "mysql-mcp-server",
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
+      "env": {
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
+      }
+    }
+  }
+}
+```
+
+Create your `.env` file:
+
+```bash
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=your_username
+MYSQL_PASSWORD=your_password
+MYSQL_ALLOW_WRITE=false
+```
+
+### Cursor
+
+Open MCP settings via **Settings → MCP Servers → Add Server** or edit directly:
+
+**Config file location:**
+- **macOS/Linux**: `~/.cursor/mcp.json`
+- **Windows**: `%APPDATA%\Cursor\User\mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
+      "env": {
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+**Config file location:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
+      "env": {
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
+      }
+    }
+  }
+}
+```
+
+### Alternative: Using Inline Environment Variables
+
+If you prefer not to use a `.env` file, you can specify credentials directly:
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
@@ -141,39 +249,17 @@ cp .env.example .env
 }
 ```
 
-**Write Mode (Use with Caution):**
+**Note:** Using a `.env` file is recommended for better security.
 
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "mysql-mcp-server",
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "your_username",
-        "MYSQL_PASSWORD": "your_password",
-        "MYSQL_ALLOW_WRITE": "true"
-      }
-    }
-  }
-}
-```
+### Global Installation (Alternative)
 
-### Method 2: Using .env File (Recommended for Security)
-
-Create a `.env` file with your credentials:
+If you prefer to install globally instead of using npx:
 
 ```bash
-# ~/.config/mysql-mcp/.env
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=your_username
-MYSQL_PASSWORD=your_password
-MYSQL_ALLOW_WRITE=false
+npm install -g @hechtcarmel/mysql-mcp-server
 ```
 
-Then reference it in Claude Desktop config:
+Then use `mysql-mcp-server` as the command:
 
 ```json
 {
@@ -181,20 +267,14 @@ Then reference it in Claude Desktop config:
     "mysql": {
       "command": "mysql-mcp-server",
       "env": {
-        "MYSQL_ENV_FILE": "/Users/yourusername/.config/mysql-mcp/.env"
+        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
       }
     }
   }
 }
 ```
 
-**Benefits of using .env file:**
-- Keep credentials out of config file
-- Easier to manage multiple environments
-- Better security (file permissions)
-- Share config file without exposing credentials
-
-### Method 3: Install from Source
+### Development - Install from Source
 
 If installed from source instead of npm:
 
