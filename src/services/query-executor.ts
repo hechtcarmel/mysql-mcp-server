@@ -3,6 +3,8 @@
  * Executes validated SQL queries and returns formatted results
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+
 import { MySQLClient } from './mysql-client.js';
 import { parseQuery } from './query-parser.js';
 import { QueryResult, OperationMode } from '../types.js';
@@ -25,9 +27,7 @@ export class QueryExecutor {
     const parseResult = parseQuery(query, this.operationMode);
 
     if (!parseResult.allowed) {
-      throw new Error(
-        `Query blocked: ${parseResult.reason}\n\n${parseResult.suggestion || ''}`
-      );
+      throw new Error(`Query blocked: ${parseResult.reason}\n\n${parseResult.suggestion || ''}`);
     }
 
     // Execute query with timing
@@ -82,7 +82,7 @@ export class QueryExecutor {
 
     // Handle DML queries (INSERT, UPDATE, DELETE, REPLACE)
     if ('affectedRows' in rows) {
-      const okPacket = rows as OkPacket;
+      const okPacket = rows;
       return {
         affectedRows: okPacket.affectedRows,
         insertId: okPacket.insertId || 0,

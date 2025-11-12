@@ -2,6 +2,9 @@
  * Metadata service for retrieving database schema information
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 import { MySQLClient } from './mysql-client.js';
 import { DatabaseInfo, TableInfo, TableSchema, ColumnInfo, IndexInfo, ForeignKeyInfo } from '../types.js';
 import { SYSTEM_DATABASES } from '../constants.js';

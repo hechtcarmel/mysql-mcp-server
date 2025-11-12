@@ -7,6 +7,12 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema
+} from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig } from './services/config-loader.js';
 import { MySQLClient } from './services/mysql-client.js';
 import { QueryExecutor } from './services/query-executor.js';
@@ -30,7 +36,7 @@ async function main(): Promise<void> {
     // Initialize MySQL client
     logInfo('Initializing MySQL client...');
     const mysqlClient = new MySQLClient(config);
-    await mysqlClient.initialize();
+    mysqlClient.initialize();
 
     // Test database connection
     logInfo('Testing database connection...');
@@ -61,13 +67,13 @@ async function main(): Promise<void> {
     const { createQueryTool, handleQueryTool } = await import('./tools/query-tool.js');
     const queryTool = createQueryTool(queryExecutor, config.operationMode, config.queryTimeout);
 
-    server.setRequestHandler('tools/list' as any, async () => {
+    server.setRequestHandler(ListToolsRequestSchema, () => {
       return {
         tools: [queryTool]
       };
     });
 
-    server.setRequestHandler('tools/call' as any, async (request: any) => {
+    server.setRequestHandler(CallToolRequestSchema, async request => {
       if (request.params.name === 'mysql_query') {
         return await handleQueryTool(request.params.arguments, queryExecutor, config.queryTimeout);
       }
@@ -81,7 +87,7 @@ async function main(): Promise<void> {
     const { handleDatabaseListResource, handleDatabaseResource } = await import('./resources/database-resource.js');
     const { handleTableResource } = await import('./resources/table-resource.js');
 
-    server.setRequestHandler('resources/list' as any, async () => {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => {
       try {
         const databases = await metadataService.listDatabases();
         const resources = [
@@ -110,7 +116,7 @@ async function main(): Promise<void> {
       }
     });
 
-    server.setRequestHandler('resources/read' as any, async (request: any) => {
+    server.setRequestHandler(ReadResourceRequestSchema, async request => {
       const uri = request.params.uri;
 
       try {
@@ -173,20 +179,23 @@ async function main(): Promise<void> {
     logInfo('Server is ready to accept requests via stdio');
 
     // Handle graceful shutdown
-    process.on('SIGINT', async () => {
-      logInfo('Received SIGINT, shutting down gracefully...');
-      await mysqlClient.close();
-      await server.close();
-      process.exit(0);
+    process.on('SIGINT', () => {
+      void (async () => {
+        logInfo('Received SIGINT, shutting down gracefully...');
+        await mysqlClient.close();
+        await server.close();
+        process.exit(0);
+      })();
     });
 
-    process.on('SIGTERM', async () => {
-      logInfo('Received SIGTERM, shutting down gracefully...');
-      await mysqlClient.close();
-      await server.close();
-      process.exit(0);
+    process.on('SIGTERM', () => {
+      void (async () => {
+        logInfo('Received SIGTERM, shutting down gracefully...');
+        await mysqlClient.close();
+        await server.close();
+        process.exit(0);
+      })();
     });
-
   } catch (error) {
     logError('Failed to start MySQL MCP Server', error);
     process.exit(1);
@@ -194,4 +203,4 @@ async function main(): Promise<void> {
 }
 
 // Start the server
-main();
+void main();

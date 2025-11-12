@@ -21,7 +21,7 @@ export class MySQLClient {
   /**
    * Initialize the connection pool
    */
-  async initialize(): Promise<void> {
+  initialize(): void {
     const poolConfig: PoolOptions = {
       host: this.config.host,
       port: this.config.port,
@@ -51,7 +51,8 @@ export class MySQLClient {
       logInfo('MySQL connection pool created successfully');
     } catch (error) {
       logError('Failed to create MySQL connection pool', error);
-      throw new Error(`Failed to initialize MySQL client: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to initialize MySQL client: ${errorMessage}`);
     }
   }
 

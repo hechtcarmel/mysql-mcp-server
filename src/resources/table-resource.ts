@@ -19,13 +19,15 @@ export async function handleTableResource(
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes('does not exist')) {
-        return `**Error: Table not found**\n\n` +
+        return (
+          `**Error: Table not found**\n\n` +
           `Table '${database}.${table}' does not exist or is not accessible.\n\n` +
           `**Suggestions:**\n` +
           `- Verify the table name is spelled correctly\n` +
           `- Use the mysql://${database} resource to see available tables in this database\n` +
           `- Check that you have permissions to access this table\n` +
-          `- Ensure the database '${database}' exists\n`;
+          `- Ensure the database '${database}' exists\n`
+        );
       }
       return `**Error retrieving table schema**\n\n${error.message}\n`;
     }

@@ -9,12 +9,7 @@ import { logQuery } from '../utils/logger.js';
 /**
  * Operations that are always allowed (read-only)
  */
-const ALWAYS_ALLOWED: QueryType[] = [
-  QueryType.SELECT,
-  QueryType.SHOW,
-  QueryType.DESCRIBE,
-  QueryType.EXPLAIN
-];
+const ALWAYS_ALLOWED: QueryType[] = [QueryType.SELECT, QueryType.SHOW, QueryType.DESCRIBE, QueryType.EXPLAIN];
 
 /**
  * Operations that are never allowed (dangerous/administrative)
@@ -83,7 +78,8 @@ function normalizeQuery(query: string): string {
  */
 function splitStatements(query: string): string[] {
   // Simple split on semicolons (not handling strings/comments for now)
-  const statements = query.split(';')
+  const statements = query
+    .split(';')
     .map(stmt => stmt.trim())
     .filter(stmt => stmt.length > 0);
 

@@ -6,12 +6,7 @@
 import { readFileSync } from 'fs';
 import { config as dotenvConfig } from 'dotenv';
 import { ServerConfig, OperationMode } from '../types.js';
-import {
-  DEFAULT_PORT,
-  DEFAULT_POOL_SIZE,
-  DEFAULT_CONNECTION_TIMEOUT,
-  DEFAULT_QUERY_TIMEOUT
-} from '../constants.js';
+import { DEFAULT_PORT, DEFAULT_POOL_SIZE, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_QUERY_TIMEOUT } from '../constants.js';
 
 /**
  * Parse a boolean environment variable
@@ -24,13 +19,7 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
 /**
  * Parse a numeric environment variable with validation
  */
-function parseNumber(
-  value: string | undefined,
-  defaultValue: number,
-  min: number,
-  max: number,
-  name: string
-): number {
+function parseNumber(value: string | undefined, defaultValue: number, min: number, max: number, name: string): number {
   if (!value) return defaultValue;
 
   const parsed = parseInt(value, 10);
@@ -59,7 +48,8 @@ function loadEnvFile(): void {
         throw result.error;
       }
     } catch (error) {
-      throw new Error(`Failed to load .env file from ${envFilePath}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to load .env file from ${envFilePath}: ${errorMessage}`);
     }
   } else {
     // Otherwise, try to load from default .env file in current directory
@@ -84,8 +74,8 @@ function validateRequiredVars(): void {
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}\n` +
-      'Please set these variables or create a .env file.\n' +
-      'See .env.example for configuration template.'
+        'Please set these variables or create a .env file.\n' +
+        'See .env.example for configuration template.'
     );
   }
 }
@@ -111,7 +101,8 @@ function loadSSLConfig(): ServerConfig['ssl'] | undefined {
     if (sslCert) cert = readFileSync(sslCert, 'utf-8');
     if (sslKey) key = readFileSync(sslKey, 'utf-8');
   } catch (error) {
-    throw new Error(`Failed to read SSL certificate files: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read SSL certificate files: ${errorMessage}`);
   }
 
   return {
@@ -144,13 +135,7 @@ export function loadConfig(): ServerConfig {
   const database = process.env.MYSQL_DATABASE;
 
   // Parse pool configuration
-  const poolSize = parseNumber(
-    process.env.MYSQL_POOL_SIZE,
-    DEFAULT_POOL_SIZE,
-    1,
-    1000,
-    'MYSQL_POOL_SIZE'
-  );
+  const poolSize = parseNumber(process.env.MYSQL_POOL_SIZE, DEFAULT_POOL_SIZE, 1, 1000, 'MYSQL_POOL_SIZE');
   const connectionTimeout = parseNumber(
     process.env.MYSQL_CONNECTION_TIMEOUT,
     DEFAULT_CONNECTION_TIMEOUT,

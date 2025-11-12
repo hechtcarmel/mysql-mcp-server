@@ -3,11 +3,11 @@
  */
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { QueryInputSchema, QueryInput } from '../schemas/tool-schemas.js';
+import { QueryInputSchema } from '../schemas/tool-schemas.js';
 import { QueryExecutor } from '../services/query-executor.js';
 import { formatAsJSON, formatAsMarkdown, applyCharacterLimit } from '../utils/formatters.js';
 import { handleQueryError } from '../utils/error-handlers.js';
-import { OperationMode } from '../types.js';
+import { OperationMode, QueryType } from '../types.js';
 
 /**
  * Create comprehensive tool description for mysql_query
@@ -25,16 +25,20 @@ This tool allows you to run SQL queries with full SQL expressiveness. The server
 - Queries are case-insensitive but table/column names may be case-sensitive depending on OS
 
 **${modeLabel} Mode Restrictions:**
-${mode === OperationMode.READ_ONLY ? `
+${
+  mode === OperationMode.READ_ONLY
+    ? `
 - ✅ ALLOWED: SELECT, SHOW, DESCRIBE, EXPLAIN
 - ❌ BLOCKED: INSERT, UPDATE, DELETE, REPLACE, CREATE, ALTER, DROP, TRUNCATE, GRANT, REVOKE
 - To enable write operations, set MYSQL_ALLOW_WRITE=true environment variable
-` : `
+`
+    : `
 - ✅ ALLOWED: SELECT, SHOW, DESCRIBE, EXPLAIN, INSERT, UPDATE, DELETE, REPLACE, transactions
 - ⚠️ ALLOWED WITH CAUTION: Transaction control (START TRANSACTION, COMMIT, ROLLBACK, SAVEPOINT)
 - ❌ BLOCKED: DROP, TRUNCATE (dangerous DDL), GRANT, REVOKE (administrative commands)
 - Dangerous DDL operations are blocked even in write mode for safety
-`}
+`
+}
 
 **Parameters:**
 
@@ -49,11 +53,15 @@ ${mode === OperationMode.READ_ONLY ? `
    - \`SHOW TABLES FROM mydb\`
    - \`DESCRIBE mydb.users\`
    - \`EXPLAIN SELECT * FROM products.items WHERE category = 'electronics'\`
-   ${mode === OperationMode.WRITE_ENABLED ? `
+   ${
+     mode === OperationMode.WRITE_ENABLED
+       ? `
    - \`INSERT INTO logs.events (event_type, message, created_at) VALUES ('info', 'User login', NOW())\`
    - \`UPDATE shop.products SET stock = stock - 1 WHERE id = 123\`
    - \`DELETE FROM cache.sessions WHERE expires_at < NOW()\`
-   ` : ''}
+   `
+       : ''
+   }
 
 2. **response_format** (optional, enum: "markdown" | "json", default: "markdown"):
    - **markdown**: Human-readable formatted output with tables, ideal for viewing
@@ -102,7 +110,9 @@ For Markdown format:
 5. **Analyze query performance:**
    \`EXPLAIN SELECT * FROM products.items WHERE category = 'electronics' AND price > 100\`
 
-${mode === OperationMode.WRITE_ENABLED ? `
+${
+  mode === OperationMode.WRITE_ENABLED
+    ? `
 6. **Insert data (WRITE mode only):**
    \`INSERT INTO logs.audit (user_id, action, timestamp) VALUES (123, 'login', NOW())\`
 
@@ -114,7 +124,9 @@ ${mode === OperationMode.WRITE_ENABLED ? `
 
 9. **Transaction (WRITE mode only):**
    \`START TRANSACTION; UPDATE accounts.balance SET amount = amount - 100 WHERE id = 1; COMMIT;\`
-` : ''}
+`
+    : ''
+}
 
 **Error Handling:**
 
@@ -193,7 +205,7 @@ export async function handleQueryTool(
 ): Promise<{ content: Array<{ type: string; text: string }> }> {
   try {
     // Validate input with Zod
-    const input = QueryInputSchema.parse(args) as QueryInput;
+    const input = QueryInputSchema.parse(args);
 
     // Execute query
     const result = await executor.executeQuery(input.query);
@@ -204,28 +216,31 @@ export async function handleQueryTool(
       formatted = formatAsJSON(result);
     } else {
       // Markdown is default
-      formatted = formatAsMarkdown(result, result.columns ? 'SELECT' as any : 'DML' as any);
+      formatted = formatAsMarkdown(result, result.columns ? QueryType.SELECT : QueryType.INSERT);
     }
 
     // Apply character limit truncation
     const finalResponse = applyCharacterLimit(formatted, true);
 
     return {
-      content: [{
-        type: 'text',
-        text: finalResponse
-      }]
+      content: [
+        {
+          type: 'text',
+          text: finalResponse
+        }
+      ]
     };
-
   } catch (error) {
     // Handle all errors with appropriate error messages
     const errorMessage = handleQueryError(error, timeout);
 
     return {
-      content: [{
-        type: 'text',
-        text: errorMessage
-      }]
+      content: [
+        {
+          type: 'text',
+          text: errorMessage
+        }
+      ]
     };
   }
 }

@@ -23,22 +23,21 @@ export async function handleDatabaseListResource(metadataService: MetadataServic
 /**
  * Handle single database resource (mysql://{database})
  */
-export async function handleDatabaseResource(
-  metadataService: MetadataService,
-  database: string
-): Promise<string> {
+export async function handleDatabaseResource(metadataService: MetadataService, database: string): Promise<string> {
   try {
     const { database: dbInfo, tables } = await metadataService.getDatabaseInfo(database);
     return formatDatabaseAsMarkdown(dbInfo, tables);
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes('does not exist')) {
-        return `**Error: Database not found**\n\n` +
+        return (
+          `**Error: Database not found**\n\n` +
           `Database '${database}' does not exist or is not accessible.\n\n` +
           `**Suggestions:**\n` +
           `- Verify the database name is spelled correctly\n` +
           `- Use the mysql://databases resource to see available databases\n` +
-          `- Check that you have permissions to access this database\n`;
+          `- Check that you have permissions to access this database\n`
+        );
       }
       return `**Error retrieving database information**\n\n${error.message}\n`;
     }

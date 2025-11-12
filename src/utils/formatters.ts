@@ -142,7 +142,8 @@ export function applyCharacterLimit(response: string, includeWarning: boolean = 
     return truncated;
   }
 
-  const warning = `\n\n---\n**⚠️ Response Truncated**\n\n` +
+  const warning =
+    `\n\n---\n**⚠️ Response Truncated**\n\n` +
     `The response was truncated at ${CHARACTER_LIMIT} characters. ` +
     `Original length was ${response.length} characters.\n\n` +
     `**Suggestions to reduce response size:**\n` +
@@ -184,7 +185,10 @@ export function formatDatabaseListAsMarkdown(databases: DatabaseInfo[]): string 
 /**
  * Format database info as Markdown
  */
-export function formatDatabaseAsMarkdown(db: { name: string; characterSet: string; collation: string }, tables: TableInfo[]): string {
+export function formatDatabaseAsMarkdown(
+  db: { name: string; characterSet: string; collation: string },
+  tables: TableInfo[]
+): string {
   let output = `# Database: ${db.name}\n\n`;
   output += `**Character Set:** ${db.characterSet}\n`;
   output += `**Collation:** ${db.collation}\n\n`;
