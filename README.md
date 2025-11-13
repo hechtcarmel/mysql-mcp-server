@@ -47,7 +47,7 @@ MYSQL_ALLOW_WRITE=false
 Run this command in Claude Code:
 
 ```bash
-claude mcp add mysql-mcp --env MYSQL_ENV_FILE=/absolute/path/to/.env -- npx -y @hechtcarmel/mysql-mcp-server
+claude mcp add mysql-mcp --scope user --env MYSQL_ENV_FILE=/absolute/path/to/.env -- npx -y @hechtcarmel/mysql-mcp-server
 ```
 
 Replace `/absolute/path/to/.env` with the actual path to your .env file.
