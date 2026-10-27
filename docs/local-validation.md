@@ -35,6 +35,8 @@ Each stage emits a safe JSON status: `validate-input`, `load-preview`, `connect`
 
 A successful result reports `ok: true`, `mode: READ_ONLY`, protocol era, and the completed check names. It includes no password, environment contents, database names, or application rows. An account or network/TLS error ends the trial; investigate locally without guessing credentials or changing grants.
 
+For a TLS failure, a separately scoped [TLS-only probe](tls-diagnostics.md) can diagnose the transport without MySQL authentication. It does not replace this functional trial or relax verification.
+
 ## Optional client trial and rollback
 
 After the smoke check passes, a separate explicitly authorized client trial can use a new MCP entry pointing to:

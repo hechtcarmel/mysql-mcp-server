@@ -203,6 +203,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the project structure and verificatio
 
 ## Troubleshooting
 
+- **TLS failure:** inspect the sanitized TLS evidence; inferred signatures are labeled. A separately scoped [TLS-only probe](docs/tls-diagnostics.md) can check certificate-chain, hostname and protocol failures without a MySQL login. It is not the functional acceptance test.
 - **Startup fails:** check Node.js, required variables, the explicit environment file, TLS file permissions, and MySQL grants. Diagnostic logs go to stderr; stdout is reserved for MCP messages. `mysql-startup` events identify the configuration, pool, database connection, and MCP transport phases with fixed error categories; they do not include connection values or raw driver errors.
 - **Unqualified table fails:** set `MYSQL_DATABASE` or use `database.table`.
 - **Query blocked:** check the SQL policy and operation mode. Enable writes only in the server's environment, then restart the client.

@@ -82,6 +82,7 @@
     ".env.example",
     "docs",
     "scripts/local-smoke.mjs",
-    "scripts/smoke-transport.mjs"
+    "scripts/smoke-transport.mjs",
+    "scripts/local-tls-probe.mjs"
   ]
 }

@@ -12,7 +12,8 @@ import type { Connection } from 'mysql2';
 import { beforeAll, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 import { parseConfig } from '../src/services/config-loader.js';
 import { cleartextAuthOptions } from '../src/services/cleartext-auth.js';
-import { startupCategory } from '../src/utils/startup-diagnostics.js';
+import { probeMySQLTls } from '../src/services/tls-probe.js';
+import { startupErrorDetails, startupCategory } from '../src/utils/startup-diagnostics.js';
 const password = 'dummy !#$@"\\ Unicode עברית credential';
 const base = { MYSQL_HOST: 'localhost', MYSQL_USER: 'dummy', MYSQL_PASSWORD: password, MYSQL_SSL: 'true' };
 let directory: string;
@@ -106,22 +107,41 @@ function hello(plugin: string, ssl: boolean, mfa: boolean): Buffer {
   );
 }
 async function fixture(
-  options: { ssl?: boolean; wrongIdentity?: boolean; advertiseClear?: boolean; mfa?: boolean } = {}
+  options: {
+    ssl?: boolean;
+    wrongIdentity?: boolean;
+    advertiseClear?: boolean;
+    mfa?: boolean;
+    nonTlsAfterRequest?: boolean;
+    stallGreeting?: boolean;
+    invalidGreeting?: boolean;
+  } = {}
 ) {
   const secure = options.ssl !== false;
   const cert = options.wrongIdentity ? wrongCertificate : certificate;
   const sockets = new Set<Socket>();
   const wire: Buffer[] = [];
   const authentication: Buffer[] = [];
+  const sslRequests: Buffer[] = [];
   let clearResponses = 0;
+  let resolvePeerClosed: () => void = () => {};
+  const peerClosed = new Promise<void>(resolve => {
+    resolvePeerClosed = resolve;
+  });
   const server = createServer(socket => {
     sockets.add(socket);
     socket.on('error', () => {});
-    socket.on('close', () => sockets.delete(socket));
+    socket.on('close', () => {
+      sockets.delete(socket);
+      resolvePeerClosed();
+    });
     socket.on('data', chunk => wire.push(Buffer.from(chunk)));
-    socket.write(
-      hello(options.advertiseClear ? 'mysql_clear_password' : 'mysql_native_password', secure, !!options.mfa)
-    );
+    if (!options.stallGreeting)
+      socket.write(
+        options.invalidGreeting
+          ? frame(Buffer.from('invalid greeting'), 0)
+          : hello(options.advertiseClear ? 'mysql_clear_password' : 'mysql_native_password', secure, !!options.mfa)
+      );
     let initial = Buffer.alloc(0);
     const receive = (chunk: Buffer) => {
       initial = Buffer.concat([initial, chunk]);
@@ -130,6 +150,11 @@ async function fixture(
       socket.removeListener('data', receive);
       const remaining = initial.subarray(4 + length);
       if (secure && length === 32) {
+        sslRequests.push(initial.subarray(4, 36));
+        if (options.nonTlsAfterRequest) {
+          socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+          return;
+        }
         socket.pause();
         // The SSLRequest and TLS ClientHello can share one TCP chunk. A public
         // Duplex bridge retains those bytes while upgrading the server side.
@@ -222,7 +247,16 @@ async function fixture(
     );
     return { client, config };
   }
-  return { connect, authentication, wire, clearResponses: () => clearResponses };
+  return {
+    connect,
+    peerClosed,
+    port,
+    certificate: cert,
+    sslRequests,
+    authentication,
+    wire,
+    clearResponses: () => clearResponses
+  };
 }
 describe('verified TLS cleartext opt-in with the real driver and a dummy endpoint', () => {
   it.each([false, true])(
@@ -256,13 +290,35 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
   });
   it('refuses an untrusted chain before sending authentication', async () => {
     const target = await fixture();
-    await expect(target.connect(true, false)).rejects.toMatchObject({ code: 'HANDSHAKE_SSL_ERROR' });
+    let error: unknown;
+    try {
+      await target.connect(true, false);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({ code: 'HANDSHAKE_SSL_ERROR' });
+    expect(startupErrorDetails(error).tls).toEqual({
+      code: 'DEPTH_ZERO_SELF_SIGNED_CERT',
+      source: 'message-signature'
+    });
+    expect(startupCategory('database-connect', error)).toBe('tls-certificate-chain-unverified');
     expect(target.authentication).toHaveLength(0);
     expect(target.clearResponses()).toBe(0);
   });
   it('refuses a trusted certificate for the wrong endpoint before authentication', async () => {
     const target = await fixture({ wrongIdentity: true });
-    await expect(target.connect()).rejects.toMatchObject({ code: 'HANDSHAKE_SSL_ERROR' });
+    let error: unknown;
+    try {
+      await target.connect();
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({ code: 'HANDSHAKE_SSL_ERROR' });
+    expect(startupErrorDetails(error).tls).toEqual({
+      code: 'ERR_TLS_CERT_ALTNAME_INVALID',
+      source: 'message-signature'
+    });
+    expect(startupCategory('database-connect', error)).toBe('tls-endpoint-identity-mismatch');
     expect(target.authentication).toHaveLength(0);
     expect(target.clearResponses()).toBe(0);
   });
@@ -324,5 +380,112 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
       enableCleartextPlugin: false
     });
     expect(cleartextAuthOptions({ ...config, enableCleartextPlugin: false }).authPlugins).toBeUndefined();
+  });
+});
+
+// These tests use no MySQL client at all: the probe must never enter login.
+describe('credential-free strict MySQL STARTTLS probe', () => {
+  it('sends only a 32-byte SSLRequest and TLS, even when extraneous credentials are supplied', async () => {
+    const target = await fixture({ advertiseClear: true });
+    const input = {
+      host: 'localhost',
+      port: target.port,
+      ca: target.certificate,
+      user: 'must-never-be-sent-user',
+      password
+    };
+    const result = await probeMySQLTls(input);
+    await target.peerClosed;
+    expect(result).toMatchObject({
+      ok: true,
+      stage: 'tls-handshake',
+      authenticationSent: false,
+      mysqlTlsAdvertised: true
+    });
+    expect(['TLSv1.2', 'TLSv1.3']).toContain(result.tlsProtocol);
+    expect(target.sslRequests).toHaveLength(1);
+    expect(target.sslRequests[0]).toHaveLength(32);
+    expect(target.sslRequests[0]!.subarray(9)).toEqual(Buffer.alloc(23));
+    expect(target.authentication).toHaveLength(0);
+    expect(Buffer.concat(target.wire).includes(Buffer.from(password))).toBe(false);
+    expect(Buffer.concat(target.wire).includes(Buffer.from(input.user))).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('localhost');
+  });
+  it('reports the original untrusted-chain code without a driver wrapper or authentication', async () => {
+    const target = await fixture();
+    const result = await probeMySQLTls({ host: 'localhost', port: target.port });
+    expect(result).toMatchObject({
+      ok: false,
+      authenticationSent: false,
+      category: 'tls-certificate-chain-unverified',
+      error: { code: 'DEPTH_ZERO_SELF_SIGNED_CERT', tls: { code: 'DEPTH_ZERO_SELF_SIGNED_CERT', source: 'error-code' } }
+    });
+    expect(target.authentication).toHaveLength(0);
+  });
+  it('reports the original endpoint-identity code before any login', async () => {
+    const target = await fixture({ wrongIdentity: true });
+    const result = await probeMySQLTls({ host: 'localhost', port: target.port, ca: target.certificate });
+    expect(result).toMatchObject({
+      ok: false,
+      authenticationSent: false,
+      category: 'tls-endpoint-identity-mismatch',
+      error: { code: 'ERR_TLS_CERT_ALTNAME_INVALID' }
+    });
+    expect(target.authentication).toHaveLength(0);
+    expect(JSON.stringify(result)).not.toContain('wrong.invalid');
+    expect(JSON.stringify(result)).not.toContain('localhost');
+  });
+  it('distinguishes an endpoint without MySQL SSL capability and sends nothing', async () => {
+    const target = await fixture({ ssl: false });
+    const result = await probeMySQLTls({ host: 'localhost', port: target.port, ca: target.certificate });
+    expect(result).toMatchObject({
+      ok: false,
+      authenticationSent: false,
+      mysqlTlsAdvertised: false,
+      category: 'tls-not-supported-by-server'
+    });
+    expect(target.wire).toHaveLength(0);
+    expect(target.authentication).toHaveLength(0);
+  });
+  it('classifies an unexpected non-TLS response without treating it as proof of a particular server setup', async () => {
+    const target = await fixture({ nonTlsAfterRequest: true });
+    const result = await probeMySQLTls({ host: 'localhost', port: target.port, ca: target.certificate });
+    expect(result).toMatchObject({
+      ok: false,
+      authenticationSent: false,
+      category: 'tls-protocol-mismatch',
+      error: { code: 'ERR_SSL_WRONG_VERSION_NUMBER' }
+    });
+    expect(target.authentication).toHaveLength(0);
+  });
+  it('bounds greeting waits and rejects malformed greetings without authentication', async () => {
+    const stalled = await fixture({ stallGreeting: true });
+    expect(await probeMySQLTls({ host: 'localhost', port: stalled.port, timeoutMs: 50 })).toMatchObject({
+      ok: false,
+      stage: 'mysql-greeting',
+      category: 'tls-probe-timeout',
+      authenticationSent: false
+    });
+    const malformed = await fixture({ invalidGreeting: true });
+    expect(await probeMySQLTls({ host: 'localhost', port: malformed.port })).toMatchObject({
+      ok: false,
+      stage: 'mysql-greeting',
+      category: 'tls-probe-invalid-mysql-greeting',
+      authenticationSent: false
+    });
+    expect(stalled.wire).toHaveLength(0);
+    expect(malformed.wire).toHaveLength(0);
+  });
+  it('rejects invalid inputs before opening a connection', async () => {
+    expect(await probeMySQLTls({ host: '127.0.0.1', port: 3306 })).toMatchObject({
+      ok: false,
+      stage: 'input',
+      authenticationSent: false
+    });
+    expect(await probeMySQLTls({ host: 'localhost', port: 0 })).toMatchObject({
+      ok: false,
+      stage: 'input',
+      authenticationSent: false
+    });
   });
 });

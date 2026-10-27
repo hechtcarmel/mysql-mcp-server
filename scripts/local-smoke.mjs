@@ -52,6 +52,8 @@ const sdkCodes = new Set([
   'SMOKE_SPAWN_FAILED'
 ]);
 let startupCodes = new Set();
+let tlsCodes = new Set();
+const tlsSources = new Set(['error-code', 'openssl-reason', 'message-signature']);
 const errorClasses = new Set(['AggregateError', 'TypeError', 'RangeError', 'SyntaxError', 'Error', 'NonError']);
 const codeStates = new Set(['recognized', 'missing', 'unrecognized']);
 let stage = 'validate-input';
@@ -112,7 +114,9 @@ function safeErrorSummary(record) {
   return {
     errorClass: errorClasses.has(record?.errorClass) ? record.errorClass : 'NonError',
     code: startupCodes.has(record?.code) ? record.code : null,
-    codeStatus: codeStates.has(record?.codeStatus) ? record.codeStatus : 'unrecognized'
+    codeStatus: codeStates.has(record?.codeStatus) ? record.codeStatus : 'unrecognized',
+    ...(tlsCodes.has(record?.tls?.code) &&
+      tlsSources.has(record?.tls?.source) && { tls: { code: record.tls.code, source: record.tls.source } })
   };
 }
 function safeErrorDetails(record) {
@@ -183,6 +187,9 @@ async function main() {
     await runStage('load-preview', () => {
       const catalog = JSON.parse(readFileSync(join(dirname(input.entry), 'utils/startup-error-codes.json'), 'utf8'));
       startupCodes = new Set(Object.keys(catalog));
+      tlsCodes = new Set(
+        Object.keys(catalog).filter(code => catalog[code].startsWith('tls-') && code !== 'HANDSHAKE_SSL_ERROR')
+      );
       for (const category of Object.values(catalog)) categories.add(category);
       const requirePreview = createRequire(join(input.preview, 'package.json'));
       const { Client, deserializeMessage, serializeMessage } = requirePreview('@modelcontextprotocol/client');

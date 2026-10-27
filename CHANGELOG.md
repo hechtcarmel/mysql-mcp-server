@@ -28,6 +28,8 @@ Prepared for release; publication remains gated on final CI and read-only local 
 
 ### Fixed
 
+- Preserve specific TLS diagnostics beneath mysql2's HANDSHAKE_SSL_ERROR wrapper, labeling fixed-signature inference and preferring original nested codes. Add a separate strictly verified MySQL STARTTLS probe that stops before login and sends no username, password, client certificate or SQL.
+
 - Keep startup connectivity testing on the original plain SELECT 1 protocol instead of requiring prepared-statement support for a constant read.
 
 - Bind all metadata query parameters. The previous client executed SQL containing unbound placeholders.

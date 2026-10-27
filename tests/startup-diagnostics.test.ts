@@ -13,7 +13,7 @@ describe('secret-safe startup evidence', () => {
     ['ECONNREFUSED', 'database-connection-refused'],
     ['ENOTFOUND', 'database-host-lookup-failed'],
     ['ETIMEDOUT', 'database-connect-timeout'],
-    ['CERT_HAS_EXPIRED', 'tls-certificate-invalid'],
+    ['CERT_HAS_EXPIRED', 'tls-certificate-expired'],
     ['MYSQL_REQUEST_TIMEOUT', 'database-connect-timeout'],
     ['HANDSHAKE_SSL_ERROR', 'tls-handshake-failed'],
     ['HANDSHAKE_NO_SSL_SUPPORT', 'tls-not-supported-by-server'],
@@ -97,6 +97,51 @@ describe('secret-safe startup evidence', () => {
     expect(startupCategory('database-connect', error)).toBe('cleartext-auth-tls-not-verified');
     expect(startupErrorDetails(error).causes[0]?.code).toBe('MYSQL_CLEARTEXT_TLS_UNVERIFIED');
     expect(JSON.stringify(startupErrorDetails(error))).not.toContain('dummy-secret');
+  });
+  it.each([
+    ['self-signed certificate', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'tls-certificate-chain-unverified'],
+    ['unable to verify the first certificate', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'tls-certificate-chain-unverified'],
+    ['certificate has expired', 'CERT_HAS_EXPIRED', 'tls-certificate-expired'],
+    [
+      'self-signed certificate; if the root CA is installed locally, try running Node.js with --use-system-ca',
+      'DEPTH_ZERO_SELF_SIGNED_CERT',
+      'tls-certificate-chain-unverified'
+    ],
+    [
+      "Hostname/IP does not match certificate's altnames: dummy-secret",
+      'ERR_TLS_CERT_ALTNAME_INVALID',
+      'tls-endpoint-identity-mismatch'
+    ]
+  ])('classifies overwritten TLS messages using fixed signatures only: %s', (message, code, category) => {
+    const error = Object.assign(new Error(message), {
+      code: 'HANDSHAKE_SSL_ERROR',
+      host: 'dummy-secret',
+      cert: { subject: 'dummy-secret' }
+    });
+    expect(startupCategory('database-connect', error)).toBe(category);
+    expect(startupErrorDetails(error).tls).toEqual({ code, source: 'message-signature' });
+    expect(JSON.stringify(startupErrorDetails(error))).not.toContain('dummy-secret');
+  });
+  it('distinguishes direct nested TLS codes from inferred wrapper signatures', () => {
+    const cause = Object.assign(new Error('dummy-secret'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+    const error = Object.assign(new Error('self-signed certificate', { cause }), { code: 'HANDSHAKE_SSL_ERROR' });
+    expect(startupCategory('database-connect', error)).toBe('tls-endpoint-identity-mismatch');
+    expect(startupErrorDetails(error).causes[0]?.tls?.source).toBe('error-code');
+  });
+  it('uses only allowlisted OpenSSL reasons and does not guess from unrelated messages', () => {
+    const error = Object.assign(new Error('dummy-secret'), {
+      code: 'HANDSHAKE_SSL_ERROR',
+      reason: 'wrong version number'
+    });
+    expect(startupErrorDetails(error).tls).toEqual({ code: 'ERR_SSL_WRONG_VERSION_NUMBER', source: 'openssl-reason' });
+    expect(startupCategory('database-connect', error)).toBe('tls-protocol-mismatch');
+    const unknown = Object.assign(new Error('dummy-secret'), { code: 'HANDSHAKE_SSL_ERROR', reason: 'dummy-secret' });
+    expect(startupErrorDetails(unknown).tls).toBeUndefined();
+    expect(startupCategory('database-connect', unknown)).toBe('tls-handshake-failed');
+    expect(
+      startupErrorDetails(Object.assign(new Error('self-signed certificate'), { code: 'dummy-secret' })).tls
+    ).toBeUndefined();
+    expect(JSON.stringify(startupErrorDetails(unknown))).not.toContain('dummy-secret');
   });
   it('gives invalid existing configuration a stable category without its value', () => {
     let error: unknown;

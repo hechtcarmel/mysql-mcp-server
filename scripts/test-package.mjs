@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 
 const required = ['MYSQL_TEST_HOST', 'MYSQL_TEST_PORT', 'MYSQL_TEST_USER', 'MYSQL_TEST_PASSWORD'];
@@ -46,6 +46,8 @@ try {
     'SECURITY.md',
     'docs/architecture.md',
     'scripts/local-smoke.mjs',
+    'scripts/local-tls-probe.mjs',
+    'dist/services/tls-probe.js',
     'scripts/smoke-transport.mjs'
   ]) {
     assert(existsSync(join(installed, file)), `Missing package file: ${file}`);
@@ -53,6 +55,22 @@ try {
   for (const file of ['.env', 'tests', 'src', '.github', 'node_modules']) {
     assert(!existsSync(join(installed, file)), `Unexpected package content: ${file}`);
   }
+  // Offline check of the installed diagnostic entrypoint: no host, no network.
+  const probe = spawnSync(process.execPath, [join(installed, 'scripts/local-tls-probe.mjs')], {
+    env: {},
+    encoding: 'utf8',
+    timeout: 5000
+  });
+  assert.equal(probe.error, undefined);
+  assert.equal(probe.status, 1);
+  assert.deepEqual(JSON.parse(probe.stdout), {
+    component: 'mysql-tls-only-probe',
+    ok: false,
+    stage: 'input',
+    authenticationSent: false,
+    mysqlTlsAdvertised: null,
+    category: 'tls-probe-invalid-input'
+  });
   run(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--project', 'integration'], {
     env: { ...process.env, MYSQL_TEST_SERVER_ENTRY: join(installed, manifest.bin['mysql-mcp-server']) }
   });

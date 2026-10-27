@@ -1,3 +1,4 @@
+import { tlsDiagnostic, type TlsDiagnostic } from './tls-diagnostics.js';
 import connectionCategories from './startup-error-codes.json' with { type: 'json' };
 /** Machine-readable startup evidence. Never includes host, paths, values or raw errors. */
 export type StartupStage = 'configuration' | 'database-pool' | 'database-connect' | 'mcp-transport';
@@ -24,6 +25,7 @@ export interface StartupErrorSummary {
   errorClass: 'AggregateError' | 'TypeError' | 'RangeError' | 'SyntaxError' | 'Error' | 'NonError';
   code: string | null;
   codeStatus: 'recognized' | 'missing' | 'unrecognized';
+  tls?: TlsDiagnostic;
 }
 export interface StartupErrorDetails extends StartupErrorSummary {
   causes: StartupErrorSummary[];
@@ -39,7 +41,9 @@ function property(error: unknown, key: string): unknown {
 function summary(error: unknown): StartupErrorSummary {
   const code = property(error, 'code');
   const recognized = typeof code === 'string' && Object.hasOwn(connectionCategories, code);
+  const tls = tlsDiagnostic(error);
   return {
+    ...(tls && { tls }),
     errorClass:
       error instanceof AggregateError
         ? 'AggregateError'
@@ -90,6 +94,8 @@ export function startupCategory(stage: StartupStage, error: unknown): string {
     const evidence = [details, ...details.causes];
     const policy = evidence.find(item => item.code?.startsWith('MYSQL_CLEARTEXT_'));
     if (policy?.code) return connectionCategories[policy.code as keyof typeof connectionCategories];
+    const tls = evidence.find(item => item.tls?.source === 'error-code')?.tls ?? evidence.find(item => item.tls)?.tls;
+    if (tls) return connectionCategories[tls.code as keyof typeof connectionCategories];
     for (const item of evidence) {
       if (item.code) return connectionCategories[item.code as keyof typeof connectionCategories];
     }

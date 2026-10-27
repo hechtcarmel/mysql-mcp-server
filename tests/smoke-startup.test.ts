@@ -124,6 +124,19 @@ describe('observed startup failures with the real MCP SDK', () => {
     expect(result.evidence.startup.error.causes).toHaveLength(7);
     expect(JSON.stringify(result)).not.toContain(secret);
   });
+  it('preserves sanitized TLS inference provenance through the packaged-helper boundary', () => {
+    const details = startupErrorDetails(
+      Object.assign(new Error("Hostname/IP does not match certificate's altnames: " + secret), {
+        code: 'HANDSHAKE_SSL_ERROR'
+      })
+    );
+    const { result } = run(startup('database-connect', 'tls-endpoint-identity-mismatch', details));
+    expect(result.evidence.startup.error).toMatchObject({
+      code: 'HANDSHAKE_SSL_ERROR',
+      tls: { code: 'ERR_TLS_CERT_ALTNAME_INVALID', source: 'message-signature' }
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
   it('does not infer a database fault from an opaque early process exit', () => {
     const { result } = run('process.exitCode=9;');
     expect(result.category).toBe('candidate-exited-before-ready');
