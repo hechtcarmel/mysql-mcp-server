@@ -41,6 +41,7 @@ describe('existing environment files', () => {
     const result = loadConfig({ MYSQL_ENV_FILE: file }, directory);
     expect(stdout).not.toHaveBeenCalled();
     expect(result).toEqual({
+      enableCleartextPlugin: false,
       host: 'old-host',
       port: 3307,
       user: 'existing-user',

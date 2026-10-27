@@ -50,5 +50,9 @@
   "PROTOCOL_INCORRECT_PACKET_SEQUENCE": "database-handshake-failed",
   "ER_PARSE_ERROR": "database-startup-query-failed",
   "ER_SYNTAX_ERROR": "database-startup-query-failed",
-  "ER_UNSUPPORTED_PS": "database-prepared-statements-unsupported"
+  "ER_UNSUPPORTED_PS": "database-prepared-statements-unsupported",
+  "MYSQL_CLEARTEXT_TLS_REQUIRED": "cleartext-auth-tls-policy-failed",
+  "MYSQL_CLEARTEXT_TLS_UNVERIFIED": "cleartext-auth-tls-not-verified",
+  "MYSQL_CLEARTEXT_IDENTITY_MISMATCH": "cleartext-auth-endpoint-mismatch",
+  "MYSQL_CLEARTEXT_CREDENTIAL_CONTEXT_INVALID": "cleartext-auth-credential-context-invalid"
 }

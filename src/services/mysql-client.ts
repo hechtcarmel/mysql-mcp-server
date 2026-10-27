@@ -3,6 +3,7 @@ import { Duplex } from 'node:stream';
 import type { Pool, PoolConnection, FieldPacket, ResultSetHeader, RowDataPacket } from 'mysql2';
 import { OperationMode, type ServerConfig, type MySQLQueryResult } from '../types.js';
 import { CHARACTER_LIMIT } from '../constants.js';
+import { cleartextAuthOptions } from './cleartext-auth.js';
 import type { Statement } from './query-parser.js';
 
 export interface StatementResult {
@@ -29,7 +30,7 @@ export class MySQLClient {
       user: this.config.user,
       password: this.config.password,
       database: this.config.database,
-      ssl: this.config.ssl,
+      ...cleartextAuthOptions(this.config),
       connectionLimit: this.config.poolSize,
       connectTimeout: this.config.connectionTimeout,
       waitForConnections: true,

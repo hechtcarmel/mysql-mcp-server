@@ -13,7 +13,7 @@ Prepared for release; publication remains gated on final CI and read-only local 
 
 ### Changed
 
-- Retain mysql2's disabled-by-default cleartext-authentication policy. Document the 3.22.0 driver behavior change and why existing env files cannot override it; no authentication opt-in or TLS weakening is introduced.
+- Add explicit MYSQL_ENABLE_CLEARTEXT_PLUGIN opt-in, disabled by default. Require certificate-chain and DNS endpoint-identity verified TLS before authentication, then recheck the actual TLS socket and credential context in the guarded plugin. Keep the driver's unguarded built-in shortcut disabled; refuse IP literals, plaintext/unverified TLS and unexpected credential changes. Existing env credentials and read-only SQL defaults remain unchanged.
 
 - Migrated to the current official MCP SDK v2 and Zod v4. The stdio entry point serves the 2026-07-28 protocol and legacy initialize-based clients from one implementation.
 - Retained the package, executable, tool name/arguments, default Markdown, JSON envelope, environment variable names and schema resource URI patterns. Requires Node.js 20.19+; Node.js 18 users must upgrade their runtime.

@@ -15,7 +15,9 @@ const configurationCategories = new Set([
   'configuration-boolean-invalid',
   'configuration-number-invalid',
   'tls-configuration-incomplete',
-  'tls-file-unavailable'
+  'tls-file-unavailable',
+  'cleartext-auth-requires-verified-tls',
+  'cleartext-auth-requires-dns-host'
 ]);
 /** Values are deliberately fixed: no error names, code strings or messages pass through. */
 export interface StartupErrorSummary {
@@ -81,13 +83,14 @@ export function startupErrorDetails(error: unknown): StartupErrorDetails {
   return result;
 }
 export function startupCategory(stage: StartupStage, error: unknown): string {
-  if (stage === 'configuration')
-    return error instanceof ConfigurationError && configurationCategories.has(error.category)
-      ? error.category
-      : 'configuration-parse-failed';
+  if (error instanceof ConfigurationError && configurationCategories.has(error.category)) return error.category;
+  if (stage === 'configuration') return 'configuration-parse-failed';
   if (stage === 'database-connect' || stage === 'database-pool') {
     const details = startupErrorDetails(error);
-    for (const item of [details, ...details.causes]) {
+    const evidence = [details, ...details.causes];
+    const policy = evidence.find(item => item.code?.startsWith('MYSQL_CLEARTEXT_'));
+    if (policy?.code) return connectionCategories[policy.code as keyof typeof connectionCategories];
+    for (const item of evidence) {
       if (item.code) return connectionCategories[item.code as keyof typeof connectionCategories];
     }
   }

@@ -83,6 +83,26 @@ describe('pool lifecycle and bounded execution', () => {
     expect(execute).toHaveBeenCalledWith('SELECT ? AS name', ["x' OR 1=1 --"]);
     expect(connection.release).toHaveBeenCalledOnce();
   });
+  it('installs only the guarded plugin and verified identity options when explicitly enabled', async () => {
+    await client.close();
+    client = new MySQLClient(
+      parseConfig({
+        MYSQL_HOST: 'db.example.test',
+        MYSQL_USER: 'dummy',
+        MYSQL_PASSWORD: 'dummy',
+        MYSQL_SSL: 'true',
+        MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'true'
+      })
+    );
+    client.initialize();
+    expect(mysql.createPool).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        enableCleartextPlugin: false,
+        ssl: { rejectUnauthorized: true, verifyIdentity: true, minVersion: 'TLSv1.2' },
+        authPlugins: { mysql_clear_password: expect.any(Function) }
+      })
+    );
+  });
   it('tests startup with one plain constant read rather than requiring prepared statements', async () => {
     expect(await client.testConnection()).toBe(true);
     expect(promiseQuery).toHaveBeenCalledExactlyOnceWith('SELECT 1');

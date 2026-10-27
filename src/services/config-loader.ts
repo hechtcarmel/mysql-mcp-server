@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
+import { validateCleartextConfig } from './cleartext-auth.js';
 import { ConfigurationError } from '../utils/startup-diagnostics.js';
 import { OperationMode, type ServerConfig } from '../types.js';
 import { DEFAULT_PORT, DEFAULT_POOL_SIZE, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_QUERY_TIMEOUT } from '../constants.js';
@@ -32,6 +33,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
       'required-configuration-missing',
       `Missing required environment variables: ${missing.join(', ')}`
     );
+  const enableCleartextPlugin = boolean(env.MYSQL_ENABLE_CLEARTEXT_PLUGIN, false, 'MYSQL_ENABLE_CLEARTEXT_PLUGIN');
   const sslEnabled = boolean(env.MYSQL_SSL, false, 'MYSQL_SSL');
   const rejectUnauthorized = boolean(env.MYSQL_SSL_REJECT_UNAUTHORIZED, true, 'MYSQL_SSL_REJECT_UNAUTHORIZED');
   if (Boolean(env.MYSQL_SSL_CERT) !== Boolean(env.MYSQL_SSL_KEY)) {
@@ -47,7 +49,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
         ...(env.MYSQL_SSL_CA && { ca: readFileSync(env.MYSQL_SSL_CA, 'utf8') }),
         ...(env.MYSQL_SSL_CERT && { cert: readFileSync(env.MYSQL_SSL_CERT, 'utf8') }),
         ...(env.MYSQL_SSL_KEY && { key: readFileSync(env.MYSQL_SSL_KEY, 'utf8') }),
-        rejectUnauthorized
+        rejectUnauthorized,
+        ...(enableCleartextPlugin && { verifyIdentity: true })
       };
     } catch {
       throw new ConfigurationError(
@@ -56,7 +59,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
       );
     }
   }
-  return {
+  const config: ServerConfig = {
+    enableCleartextPlugin,
     host: env.MYSQL_HOST!,
     port: integer(env.MYSQL_PORT, DEFAULT_PORT, 1, 65535, 'MYSQL_PORT'),
     user: env.MYSQL_USER!,
@@ -77,6 +81,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
     maxRows: integer(env.MYSQL_MAX_ROWS, 1000, 1, 100000, 'MYSQL_MAX_ROWS'),
     ...(ssl && { ssl })
   };
+  validateCleartextConfig(config);
+  return config;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {

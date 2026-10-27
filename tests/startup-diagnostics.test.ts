@@ -91,6 +91,13 @@ describe('secret-safe startup evidence', () => {
     });
     expect(startupErrorDetails(error)).toMatchObject({ errorClass: 'Error', code: null, codeStatus: 'missing' });
   });
+  it('retains the guarded policy reason when mysql2 overwrites the outer plugin error code', () => {
+    const cause = Object.assign(new Error('dummy-secret'), { code: 'MYSQL_CLEARTEXT_TLS_UNVERIFIED' });
+    const error = Object.assign(new Error('dummy-secret', { cause }), { code: 'AUTH_SWITCH_PLUGIN_ERROR' });
+    expect(startupCategory('database-connect', error)).toBe('cleartext-auth-tls-not-verified');
+    expect(startupErrorDetails(error).causes[0]?.code).toBe('MYSQL_CLEARTEXT_TLS_UNVERIFIED');
+    expect(JSON.stringify(startupErrorDetails(error))).not.toContain('dummy-secret');
+  });
   it('gives invalid existing configuration a stable category without its value', () => {
     let error: unknown;
     try {

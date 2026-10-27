@@ -62,6 +62,7 @@ export interface ServerConfig {
   port: number;
   user: string;
   password: string;
+  enableCleartextPlugin: boolean;
   database?: string;
 
   // Operation mode
@@ -79,6 +80,7 @@ export interface ServerConfig {
     cert?: string;
     key?: string;
     rejectUnauthorized: boolean;
+    verifyIdentity?: boolean;
   };
 }
 

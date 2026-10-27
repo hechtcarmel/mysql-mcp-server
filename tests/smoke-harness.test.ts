@@ -54,7 +54,7 @@ function fixture() {
   );
   writeFileSync(
     join(serverDir, 'index.js'),
-    `const fs=require('node:fs'); fs.appendFileSync(${JSON.stringify(join(root, 'trace.jsonl'))}, JSON.stringify({name:'candidate-environment',data:{MYSQL_ENV_FILE:process.env.MYSQL_ENV_FILE,MYSQL_ALLOW_WRITE:process.env.MYSQL_ALLOW_WRITE,hasPassword:Object.hasOwn(process.env,'MYSQL_PASSWORD')}})+'\\n'); process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`
+    `const fs=require('node:fs'); fs.appendFileSync(${JSON.stringify(join(root, 'trace.jsonl'))}, JSON.stringify({name:'candidate-environment',data:{MYSQL_ENV_FILE:process.env.MYSQL_ENV_FILE,MYSQL_ALLOW_WRITE:process.env.MYSQL_ALLOW_WRITE,hasPassword:Object.hasOwn(process.env,'MYSQL_PASSWORD'),cleartextOptIn:process.env.MYSQL_ENABLE_CLEARTEXT_PLUGIN??null,tlsOptIn:process.env.MYSQL_SSL??null}})+'\\n'); process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`
   );
   const envFile = join(root, 'existing.env');
   writeFileSync(envFile, `MYSQL_PASSWORD=${sensitive}\nMYSQL_ALLOW_WRITE=true\n`);
@@ -116,7 +116,9 @@ describe('safe incremental Mac smoke diagnostics (cloud mocks only)', () => {
     expect(result.trace.find(call => call.name === 'candidate-environment').data).toEqual({
       MYSQL_ENV_FILE: setup.envFile,
       MYSQL_ALLOW_WRITE: 'false',
-      hasPassword: false
+      hasPassword: false,
+      cleartextOptIn: null,
+      tlsOptIn: null
     });
     expect(result.trace.filter(call => call.name === 'query').map(call => call.data.arguments.query)).toEqual([
       'SELECT 1 AS connection_test'
@@ -135,6 +137,23 @@ describe('safe incremental Mac smoke diagnostics (cloud mocks only)', () => {
       if (failedStage === 'connect') expect(result.summary.category).toBe('database-authentication-denied');
     }
   );
+  it('forwards explicit noncredential TLS/auth overlays while keeping env credentials and readonly enforcement', () => {
+    const setup = fixture();
+    const result = run(setup, {
+      MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'true',
+      MYSQL_SSL: 'true',
+      MYSQL_SSL_REJECT_UNAUTHORIZED: 'true'
+    });
+    expect(result.status).toBe(0);
+    expect(result.trace.find(call => call.name === 'candidate-environment').data).toEqual({
+      MYSQL_ENV_FILE: setup.envFile,
+      MYSQL_ALLOW_WRITE: 'false',
+      hasPassword: false,
+      cleartextOptIn: 'true',
+      tlsOptIn: 'true'
+    });
+    expect(readFileSync(setup.envFile, 'utf8')).toContain('MYSQL_ALLOW_WRITE=true');
+  });
   it('keeps an MCP timeout distinct from an unconfirmed database failure', () => {
     const result = run(fixture(), { SMOKE_FIXTURE_TIMEOUT: 'true' });
     expect(result.summary).toMatchObject({

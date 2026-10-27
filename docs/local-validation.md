@@ -4,6 +4,8 @@ Run this trial only on the user's Mac after reviewing the change and its CI resu
 
 The trial script constructs exactly one SQL statement: `SELECT 1 AS connection_test`. It also reads MCP tool annotations and resource-template definitions. It does not read application records or schemas, construct/send mutation SQL, test rejected operations, use mocks, try incorrect passwords, create tables, grant permissions, or change server settings. It forces `MYSQL_ALLOW_WRITE=false` in the child environment even if the existing file enables writes.
 
+For an endpoint requiring mysql_clear_password, first review [authentication compatibility](authentication.md). New authentication/TLS overlays require approval for the actual endpoint; the helper does not enable them automatically. The only missing local information should be nonsecret trust/identity requirements, not credentials.
+
 The original installation and MCP client configuration remain untouched. No global reinstall is needed.
 
 ## Isolated install

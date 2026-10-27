@@ -23,6 +23,8 @@ const categories = new Set([
   'configuration-number-invalid',
   'tls-configuration-incomplete',
   'tls-file-unavailable',
+  'cleartext-auth-requires-verified-tls',
+  'cleartext-auth-requires-dns-host',
   'configuration-parse-failed',
   'database-authentication-denied',
   'database-access-denied',
@@ -195,7 +197,25 @@ async function main() {
         entry: input.entry,
         deserializeMessage,
         serializeMessage,
-        env: { ...getDefaultEnvironment(), MYSQL_ENV_FILE: input.file, MYSQL_ALLOW_WRITE: 'false' }
+        env: {
+          ...getDefaultEnvironment(),
+          // Explicit noncredential overlays only. Enabling these for a real
+          // trial requires approval; never inherit host/user/password values.
+          ...Object.fromEntries(
+            [
+              'MYSQL_ENABLE_CLEARTEXT_PLUGIN',
+              'MYSQL_SSL',
+              'MYSQL_SSL_REJECT_UNAUTHORIZED',
+              'MYSQL_SSL_CA',
+              'MYSQL_SSL_CERT',
+              'MYSQL_SSL_KEY'
+            ]
+              .filter(key => process.env[key] !== undefined)
+              .map(key => [key, process.env[key]])
+          ),
+          MYSQL_ENV_FILE: input.file,
+          MYSQL_ALLOW_WRITE: 'false'
+        }
       });
       observation = transport;
       captureSafeDiagnostics(transport.stderr);
