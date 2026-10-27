@@ -37,3 +37,6 @@ export const SYSTEM_DATABASES = ['information_schema', 'performance_schema', 'my
  * Maximum query length in characters
  */
 export const MAX_QUERY_LENGTH = 10000;
+
+/** Maximum independently validated statements in one query call. */
+export const MAX_STATEMENTS = 50;

@@ -57,11 +57,16 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm build
       - run: pnpm pack --pack-destination /tmp/mysql-mcp-package
+      - name: Record package checksum
+        working-directory: /tmp/mysql-mcp-package
+        run: |
+          sha256sum -- *.tgz > SHA256SUMS
+          cat SHA256SUMS
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: matrix.node == '24'
         with:
           name: npm-package
-          path: /tmp/mysql-mcp-package/*.tgz
+          path: /tmp/mysql-mcp-package/*
           if-no-files-found: error
 
   integration:

@@ -8,26 +8,51 @@ export const QueryInputSchema = z
       .min(1)
       .max(MAX_QUERY_LENGTH)
       .describe(
-        'SQL query. Prefer fully qualified database.table names; otherwise MYSQL_DATABASE is used. Use LIMIT for exploratory queries.'
-      ),
+        'MySQL SQL. Prefer database.table names; unqualified names use MYSQL_DATABASE. Add LIMIT to bound database work.'
+      )
+      .meta({ examples: ['SELECT id FROM shop.orders ORDER BY id LIMIT 10'] }),
     response_format: z
       .enum(['markdown', 'json'])
       .default('markdown')
-      .describe('Human-readable Markdown (default) or machine-readable JSON.')
+      .describe('Text rendering: Markdown (default) or JSON. Both also return structuredContent.')
   })
   .strict();
 export type QueryInput = z.infer<typeof QueryInputSchema>;
 
-export const QueryOutputSchema = z.object({
-  columns: z.array(z.object({ name: z.string(), type: z.string() })),
-  rows: z.array(z.array(z.json())),
+export const QueryResultOutputSchema = z.object({
+  columns: z
+    .array(
+      z.object({
+        name: z.string().describe('Column label; duplicate labels keep separate positions.'),
+        type: z.string().describe('MySQL protocol type name, not the full SQL column declaration.')
+      })
+    )
+    .describe('Ordered columns for row results; empty for statements without a row set.'),
+  rows: z
+    .array(z.array(z.json()))
+    .describe('Values by column position. Large integers and DECIMAL are strings; binary is base64; SQL NULL is null.'),
   metadata: z.object({
-    rowCount: z.number(),
-    executionTime: z.number(),
-    truncated: z.boolean(),
-    affectedRows: z.number().optional(),
-    insertId: z.union([z.number(), z.string()]).optional(),
-    changedRows: z.number().optional()
-  }),
-  results: z.array(z.json()).optional()
+    rowCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Retained row count, or MySQL affected rows for a statement without a row set.'),
+    executionTime: z.number().nonnegative().describe('Elapsed request execution time in milliseconds.'),
+    truncated: z.boolean().describe('Rows or column metadata were omitted; use filters, LIMIT or fewer columns.'),
+    affectedRows: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe('MySQL-reported affected rows; not necessarily changed rows.'),
+    insertId: z.union([z.number(), z.string()]).optional().describe('MySQL insert ID; large IDs may be strings.'),
+    changedRows: z.number().nonnegative().optional().describe('Driver-reported changed rows; zero when unavailable.')
+  })
+});
+export const QueryOutputSchema = QueryResultOutputSchema.extend({
+  results: z
+    .array(QueryResultOutputSchema)
+    .optional()
+    .describe(
+      'Batch outputs in execution order. Top-level fields describe the first statement; top-level truncated summarizes the batch.'
+    )
 });

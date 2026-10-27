@@ -4,18 +4,23 @@ import { QueryExecutor } from '../services/query-executor.js';
 import { formatQueryResponse } from '../utils/formatters.js';
 import { handleQueryError } from '../utils/error-handlers.js';
 import { OperationMode } from '../types.js';
+import { CHARACTER_LIMIT, MAX_STATEMENTS } from '../constants.js';
 
-export function queryToolDescription(mode: OperationMode): string {
+export function queryToolDescription(mode: OperationMode, maxRows: number): string {
   return (
-    `Execute MySQL SQL in ${mode} mode. Prefer fully qualified database.table names. ` +
-    'Use schema resources before querying and LIMIT for exploratory queries. ' +
-    'SELECT, SHOW, DESCRIBE and EXPLAIN are supported. ' +
+    'Query MySQL data or inspect query plans; prefer schema resources for tables, columns and relationships. ' +
+    `Mode: ${mode}. SELECT, SHOW, DESCRIBE and EXPLAIN are supported. ` +
+    (mode === OperationMode.READ_ONLY
+      ? 'Writes are disabled; reads run in a MySQL READ ONLY transaction. '
+      : 'INSERT, UPDATE, DELETE and REPLACE are enabled. Explicit transactions must start and finish in one call. ') +
+    `Up to ${MAX_STATEMENTS} validated statements run sequentially on one connection. ` +
+    'DDL, administrative SQL, file access, variable assignments, locking reads, EXPLAIN ANALYZE and selected side-effecting built-ins are blocked. ' +
+    `Return at most ${maxRows} retained rows per call; text and structured output each have a ${CHARACTER_LIMIT}-character budget. ` +
+    'Use LIMIT to bound database work; metadata.truncated reports omitted output. Input/SQL failures set isError. ' +
     (mode === OperationMode.WRITE_ENABLED
-      ? 'INSERT, UPDATE, DELETE, REPLACE and complete transactions in a single call are enabled. '
-      : 'Writes are disabled by default. ') +
-    'DDL, administrative SQL, file operations, session-variable assignments and locking reads are blocked. ' +
-    'Multiple statements run sequentially on one connection; transaction boundaries must be in the same call. ' +
-    'Results have row and character limits. A write timeout or cancellation has an uncertain outcome; verify before retrying.'
+      ? 'A timeout or cancellation does not prove a write failed; verify before retrying. '
+      : '') +
+    'SQL is never retried automatically. Account grants bound access; validation is not a routine/UDF sandbox.'
   );
 }
 

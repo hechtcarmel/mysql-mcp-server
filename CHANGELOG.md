@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Local validation and release controls
 
+- Added safe incremental smoke-stage diagnostics with explicit failures and normal macOS symlink handling; raw errors, credentials and query results are never echoed by the Mac helper.
+- Reviewed tool discovery against the official SDK guidance: mode/config-aware descriptions, bounded input examples, concrete batch output schemas and conservative annotations. CI artifacts include a tarball checksum for portable verification.
+
 - Added a separate reversible Mac preview and fixed read-only smoke helper using the existing env file, with write mode forcibly disabled and no write/rejection/mock checks in the local trial.
 - Added dummy-password regression coverage for special characters and documented dotenv quoting, shell expansion, JSON configuration and environment precedence without URL encoding or credential changes.
 - Prepared exact-tag CI, version/changelog validation, draft GitHub releases with checksummed tarballs, and protected npm trusted publishing with provenance. No release, npm publication, security-setting change or merge is performed by this code change.

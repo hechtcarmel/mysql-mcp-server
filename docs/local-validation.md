@@ -9,7 +9,7 @@ The original installation and MCP client configuration remain untouched. No glob
 ## Isolated install
 
 1. Use Node.js 24 (minimum runtime 20.19).
-2. Obtain the reviewed tarball from the task artifact or CI's `npm-package` artifact, which includes the matching `scripts/local-smoke.mjs`. Check the supplied SHA-256 before installing. Keep the helper and tarball from the same reviewed revision.
+2. Obtain the reviewed tarball from the task artifact or CI's `npm-package` artifact, which includes the matching `scripts/local-smoke.mjs`. The CI artifact contains the tarball and `SHA256SUMS`; run `shasum -a 256 -c SHA256SUMS` in the downloaded directory before installing. Keep the helper and tarball from the same reviewed revision.
 3. Create an isolated preview directory. These commands install the tarball and the official client helper without changing the existing server installation:
 
    ```sh
@@ -27,9 +27,11 @@ The original installation and MCP client configuration remain untouched. No glob
      node "$preview_dir/node_modules/@hechtcarmel/mysql-mcp-server/scripts/local-smoke.mjs"
    ```
 
-   The server reads the existing file locally. The helper does not parse or rewrite it. It invokes Node directly with an argument array, so password characters never pass through a shell command. Normal dotenv syntax still applies to the file; see [password handling](password-handling.md).
+   The server reads the existing file locally. The helper does not parse or rewrite it. It invokes Node directly with an argument array, so password characters never pass through a shell command. Normal dotenv syntax still applies to the file; see [password handling](password-handling.md). If the existing file uses relative TLS paths, launch from the original server working directory; the helper preserves that directory and does not rewrite paths.
 
-A successful result reports `ok: true`, `mode: READ_ONLY`, protocol era, server version, and the exact preview entry point. It includes no password, environment contents, database names, or application rows. An account or network/TLS error ends the trial; investigate locally without guessing credentials or changing grants.
+Each stage emits a safe JSON status: `validate-input`, `load-preview`, `connect`, `confirm-read-only-tool`, `select-one`, `resource-templates`, and `cleanup`. A failure exits nonzero and identifies its stage plus a sanitized category; it never skips the trial because of a temporary-directory prefix or symlink. Normal macOS `/tmp` and `/var` aliases are resolved before use.
+
+A successful result reports `ok: true`, `mode: READ_ONLY`, protocol era, and the completed check names. It includes no password, environment contents, database names, or application rows. An account or network/TLS error ends the trial; investigate locally without guessing credentials or changing grants.
 
 ## Optional client trial and rollback
 

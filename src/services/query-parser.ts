@@ -1,5 +1,5 @@
 import { QueryType, OperationMode, type ParseResult } from '../types.js';
-import { MAX_QUERY_LENGTH } from '../constants.js';
+import { MAX_QUERY_LENGTH, MAX_STATEMENTS } from '../constants.js';
 
 interface Token {
   value: string;
@@ -108,7 +108,8 @@ export function validateQuery(query: string, mode: OperationMode): Statement[] {
     throw new Error(`Query must contain 1–${MAX_QUERY_LENGTH} characters`);
   const statements = scan(query);
   if (!statements.length) throw new Error('Empty SQL query');
-  if (statements.length > 50) throw new Error('A query call may contain at most 50 statements');
+  if (statements.length > MAX_STATEMENTS)
+    throw new Error(`A query call may contain at most ${MAX_STATEMENTS} statements`);
   let inTransaction = false;
   return statements.map(({ sql, tokens }, index) => {
     const queryType = classify(tokens);

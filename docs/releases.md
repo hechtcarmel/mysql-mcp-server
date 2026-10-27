@@ -35,7 +35,7 @@ The only workflow with repository write permission is the draft-release job. Nor
 
 Cloud unit tests cover SQL policy and write behavior with mocks only. Real database integration/package checks send safe reads against existing system schemas; they create no tables, routines, users, permissions, or test datasets, and do not probe rejected mutations or bad passwords. The real Mac handoff runs only `local-smoke.mjs`, not the aggregate test suite.
 
-Workflow YAML, local validation scripts, and npm packaging can be checked before merging. GitHub Actions execution, protected-environment configuration, npm's trusted-publisher binding, the actual Mac trial, and registry publication require their respective external environments and have not been executed by the cloud code change.
+Workflow YAML, local validation scripts, and npm packaging can be checked before merging. Hosted CI must pass on the exact candidate commit before the Mac trial. Protected-environment configuration, npm's trusted-publisher binding, the Mac trial, and registry publication require their respective external environments and authorized maintainer actions; ordinary CI does not publish anything.
 
 ## Official references
 

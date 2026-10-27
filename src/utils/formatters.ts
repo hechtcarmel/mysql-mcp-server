@@ -1,9 +1,10 @@
 import { type QueryResult, QueryType, type DatabaseInfo, type TableInfo, type TableSchema } from '../types.js';
 import { CHARACTER_LIMIT } from '../constants.js';
-import { QueryOutputSchema } from '../schemas/tool-schemas.js';
+import type { QueryOutputSchema, QueryResultOutputSchema } from '../schemas/tool-schemas.js';
 import type { z } from 'zod';
 
 export type StructuredResult = z.infer<typeof QueryOutputSchema>;
+type SingleResult = z.infer<typeof QueryResultOutputSchema>;
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -20,9 +21,9 @@ function jsonValue(value: unknown): JsonValue {
   return typeof value === 'symbol' ? (value.description ?? '') : '[unsupported value]';
 }
 
-export function toStructuredResult(result: QueryResult): StructuredResult {
+function toStructuredSingle(result: QueryResult): SingleResult {
   return {
-    columns: result.columns ?? [],
+    columns: result.columns?.map(column => ({ ...column })) ?? [],
     rows: (result.rows ?? []).map(row => row.map(jsonValue)),
     metadata: {
       rowCount: result.rowCount,
@@ -31,9 +32,12 @@ export function toStructuredResult(result: QueryResult): StructuredResult {
       ...(result.affectedRows !== undefined && { affectedRows: result.affectedRows }),
       ...(result.insertId !== undefined && { insertId: result.insertId }),
       ...(result.changedRows !== undefined && { changedRows: result.changedRows })
-    },
-    ...(result.results && { results: result.results.map(item => jsonValue(toStructuredResult(item))) })
+    }
   };
+}
+
+export function toStructuredResult(result: QueryResult): StructuredResult {
+  return { ...toStructuredSingle(result), ...(result.results && { results: result.results.map(toStructuredSingle) }) };
 }
 
 export function formatAsJSON(result: QueryResult): string {
@@ -59,9 +63,7 @@ function escapeCell(value: unknown): string {
 
 function markdown(result: StructuredResult): string {
   if (result.results)
-    return result.results
-      .map((item, i) => `### Statement ${i + 1}\n\n${markdown(QueryOutputSchema.parse(item))}`)
-      .join('\n\n');
+    return result.results.map((item, i) => `### Statement ${i + 1}\n\n${markdown(item)}`).join('\n\n');
   let output: string;
   if (result.metadata.affectedRows !== undefined) {
     output = `**Operation completed successfully**\n\n- Rows affected: ${result.metadata.affectedRows}\n- Insert ID: ${result.metadata.insertId ?? 0}\n`;
@@ -90,7 +92,7 @@ export function formatQueryResponse(
   // The structured payload has its own budget so Markdown escaping cannot hide oversized data.
   while (render().length > CHARACTER_LIMIT || JSON.stringify(output).length > CHARACTER_LIMIT) {
     output.metadata.truncated = true;
-    const items = output.results ? output.results.map(item => QueryOutputSchema.parse(item)) : [output];
+    const items = output.results ?? [output];
     let changed = false;
     for (const item of items) {
       item.metadata.truncated = true;
@@ -104,7 +106,7 @@ export function formatQueryResponse(
       }
     }
     if (output.results) {
-      output.results = items.map(jsonValue);
+      output.results = items;
       const first = items[0]!;
       output.rows = first.rows;
       output.columns = first.columns;

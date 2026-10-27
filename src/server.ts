@@ -51,10 +51,10 @@ export function createServer(config: ServerConfig, executor: QueryExecutor, meta
     'mysql_query',
     {
       title: 'Query MySQL',
-      description: queryToolDescription(config.operationMode),
+      description: queryToolDescription(config.operationMode, config.maxRows),
       inputSchema: QueryInputSchema,
       outputSchema: QueryOutputSchema,
-      annotations: { readOnlyHint: readonly, destructiveHint: !readonly, idempotentHint: readonly, openWorldHint: true }
+      annotations: { readOnlyHint: readonly, destructiveHint: !readonly, idempotentHint: false, openWorldHint: true }
     },
     (args, ctx) => handleQueryTool(args, executor, config.queryTimeout, ctx.mcpReq.signal)
   );
