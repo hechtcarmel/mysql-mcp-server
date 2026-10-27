@@ -60,7 +60,7 @@ jobs:
           path: release-assets
       - name: Checksum the exact validated tarball
         working-directory: release-assets
-        run: sha256sum *.tgz > SHA256SUMS
+        run: sha256sum -- *.tgz > SHA256SUMS
       - name: Prepare a draft for maintainer review
         env:
           GH_TOKEN: ${{ github.token }}
