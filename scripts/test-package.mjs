@@ -55,6 +55,42 @@ try {
   run(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--project', 'integration'], {
     env: { ...process.env, MYSQL_TEST_SERVER_ENTRY: join(installed, manifest.bin['mysql-mcp-server']) }
   });
+  // After checking the runtime-only install, reproduce the Mac helper setup
+  // against this disposable target. This is never part of the real Mac trial.
+  run(npm, [
+    'install',
+    '--prefix',
+    scratch,
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    '--package-lock=false',
+    '@modelcontextprotocol/client@2.4.0'
+  ]);
+  const smokeEnv = join(scratch, 'readonly-smoke.env');
+  const testConfig = {
+    MYSQL_HOST: process.env.MYSQL_TEST_HOST,
+    MYSQL_PORT: process.env.MYSQL_TEST_PORT,
+    MYSQL_USER: process.env.MYSQL_TEST_USER,
+    MYSQL_PASSWORD: process.env.MYSQL_TEST_PASSWORD,
+    MYSQL_ALLOW_WRITE: 'false'
+  };
+  // This fixture is for the explicitly supplied disposable CI target only.
+  // Refuse values that cannot be represented literally in this single-line file.
+  assert(
+    Object.values(testConfig).every(value => !/[\\\r\n'"`]/.test(value)),
+    'Use simple disposable test credentials'
+  );
+  writeFileSync(
+    smokeEnv,
+    Object.entries(testConfig)
+      .map(([key, value]) => `${key}='${value}'`)
+      .join('\n'),
+    { mode: 0o600 }
+  );
+  run(process.execPath, [join(installed, 'scripts/local-smoke.mjs')], {
+    env: { ...process.env, MYSQL_MCP_PREVIEW_DIR: scratch, MYSQL_ENV_FILE: smokeEnv }
+  });
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
