@@ -15,8 +15,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Maintainers must configure this environment's required reviewers and the
-    # matching npm trusted publisher before publishing any GitHub release.
+    # Match environment npm in the npm trusted-publisher binding.
+    # This declaration adds no approval gate; reviewer/tag rules are optional
+    # repository settings that require separate authorization to change.
     environment: npm
     permissions:
       contents: read

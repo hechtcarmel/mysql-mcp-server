@@ -4,7 +4,9 @@ These workflows are prepared for review; this change does not publish a package/
 
 ## One-time maintainer setup
 
-Before using publication, review the repository's branch/tag protections, required CI checks, and GitHub environment protection. Configure the `npm` environment with required reviewers. This document does not create or change those settings.
+The publish job declares `environment: npm`. The npm trusted-publisher binding below must match that environment name and workflow identity. The environment declaration alone does **not** create an approval gate: GitHub can create an undeclared environment without protection rules.
+
+Required reviewers, tag restrictions and bypass controls are optional GitHub protections, recommended for a controlled release; npm OIDC does not require them. Verify the actual settings before relying on an approval gate. If deployment restrictions are enabled, allow the intended release tags (for example, a tag rule for `v*`). Changing these settings requires separate action-time authorization; this document creates or changes none of them.
 
 In the npm package's trusted-publisher settings, authorize this exact GitHub identity:
 
@@ -12,7 +14,9 @@ In the npm package's trusted-publisher settings, authorize this exact GitHub ide
 - Repository: `mysql-mcp-server`
 - Workflow filename: `publish.yml` (case-sensitive; filename only)
 - Environment: `npm`
-- Allowed action: direct package publication, if the npm settings expose this choice
+- Allowed action: direct `npm publish`; a stage-only publisher does not match this workflow
+
+Create a new trusted-publisher binding near the approved release: its first successful publish must complete within two days, or the binding expires and must be recreated. Private npm bindings and GitHub protection settings cannot be verified by ordinary package CI.
 
 No long-lived npm write token or `NPM_TOKEN` secret is required. The workflow uses a GitHub-hosted runner, Node.js 24, npm 11 (11.5.1+), job-scoped `id-token: write`, and OIDC provenance. The repository URL in `package.json` must match the publishing repository. Do not configure a fork to publish this package.
 
@@ -21,11 +25,11 @@ Consider enabling GitHub immutable releases once the process has been reviewed: 
 ## Version, review, and release
 
 1. Finish code review and CI, then complete the [read-only Mac trial](local-validation.md) with the user's existing file. Do not substitute a write/mock/rejection suite for that trial.
-2. Choose the next SemVer version deliberately. Runtime or contract breaks generally warrant a major release; use a prerelease such as `2.0.0-rc.1` when appropriate. The modernization stays in `Unreleased` until a maintainer chooses the release version.
-3. Update `package.json` without prematurely creating a tag, synchronize `pnpm-lock.yaml`, and move the relevant changelog notes under `## [X.Y.Z] - YYYY-MM-DD`. Retain an empty `Unreleased` section for later work. Commit and review the version/changelog change with the implementation.
+2. This overhaul selects **2.0.0** because it removes Node.js 18 support and tightens SQL, configuration and error contracts. The existing npm release is 1.0.0; never overwrite it. Check that 2.0.0 is still unused immediately before publication. Future runtime or contract breaks generally warrant a major release; a prerelease such as `2.0.0-rc.1` may be chosen separately when needed.
+3. Update `package.json` without prematurely creating a tag, revalidate `pnpm-lock.yaml` (pnpm v9 lockfiles do not store the root package version; a version-only bump may leave the file unchanged), and move the relevant changelog notes under `## [X.Y.Z] - YYYY-MM-DD`. Retain an empty `Unreleased` section for later work. Commit and review the version/changelog change with the implementation.
 4. After separate merge authorization, create the matching `vX.Y.Z` tag on the reviewed commit and push it. Never move an existing release tag.
 5. Manually run **Prepare release** (`release.yml`) with that existing tag. It validates the manifest/changelog, runs the full CI matrix against the exact tag, builds without restored dependency caches, and creates a **draft** GitHub release with the tested npm tarball and `SHA256SUMS`. It does not publish to npm. Prerelease tags create prerelease drafts.
-6. Review generated release notes, compatibility notes, the tarball, checksums, and local-trial evidence. Publish the draft only with maintainer authorization. Publishing the GitHub release triggers `publish.yml`, which waits on the protected `npm` environment's approval.
+6. Review generated release notes, compatibility notes, the tarball, checksums, and local-trial evidence. Publish the draft only with maintainer authorization. Publishing the GitHub release triggers `publish.yml`, which waits for environment approval only if required reviewers have been configured. The final CI and actual read-only local-validation gate applies regardless of those optional settings.
 7. The npm job downloads the reviewed tarball, verifies its checksum and internal package identity/version, and publishes those same bytes with OIDC provenance. Stable releases use the `latest` dist-tag; prereleases use `next`. It does not rebuild after review.
 8. Verify the npm version/dist-tag and provenance, GitHub assets, and a clean `npx` installation with read-only configuration. If something fails, stop and inspect the sanitized error; do not automatically retry or overwrite a published version.
 

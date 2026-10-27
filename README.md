@@ -57,10 +57,13 @@ You can also install globally with `npm install -g @hechtcarmel/mysql-mcp-server
 
 ## Upgrading existing installations
 
+Version 2.0.0 is a major release because it raises the minimum Node.js runtime and intentionally tightens SQL validation, configuration parsing and error signaling. Existing environment files remain supported and read-only remains the default.
+
 The package name, executable, stdio transport, `mysql_query` arguments, default Markdown response, JSON envelope, environment variable names, and resource URI patterns remain available. Existing client configuration continues to work on a supported Node.js runtime.
 
 Review these changes when upgrading:
 
+- Endpoints requesting `mysql_clear_password` now fail with an explicit diagnostic: mysql2 3.22+ disables this plugin by default, and the MCP server currently exposes no opt-in. See [authentication compatibility](docs/authentication.md) for the security requirements and supported limits.
 - **Node.js 18 is no longer supported.** The current MCP SDK requires Node.js 20+. This project requires 20.19+ for its supported toolchain.
 - Invalid numeric values such as `3306abc`, and boolean values other than `true` / `false`, now fail startup instead of being silently interpreted. Error messages identify the variable without printing its value.
 - Read-only queries run inside a MySQL `READ ONLY` transaction. File access, executable SQL comments, session-variable assignments, side-effecting built-ins, locking reads, and `EXPLAIN ANALYZE` are rejected in both modes.

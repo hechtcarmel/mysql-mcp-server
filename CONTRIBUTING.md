@@ -23,7 +23,7 @@ Keep the package/command/tool names, environment configuration, resource URI pat
 
 Never write application logs to stdout, log SQL literals or driver error objects, introduce automatic write retries, or share a transaction between tool calls. Validate the whole batch before acquiring a connection. Keep `multipleStatements` disabled in mysql2.
 
-`pnpm pack --pack-destination /tmp/mysql-mcp-package` performs a clean build and creates a reviewable tarball without publishing. Inspect its contents before a release. Package publication and version selection are separate maintainer actions; see [docs/releases.md](docs/releases.md) for draft-release and protected OIDC publishing workflows.
+`pnpm pack --pack-destination /tmp/mysql-mcp-package` performs a clean build and creates a reviewable tarball without publishing. Inspect its contents before a release. Package publication and version selection are separate maintainer actions; see [docs/releases.md](docs/releases.md) for draft-release and environment-scoped OIDC publishing workflows.
 
 GitHub Actions are pinned to commit SHAs. Dependabot updates npm dependencies and Actions; review SDK changes as a group and keep both protocol eras covered. See [docs/architecture.md](docs/architecture.md) for design rationale.
 

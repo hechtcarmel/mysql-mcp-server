@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-27
+
+Prepared for release; publication remains gated on final CI and read-only local validation. This major version raises the minimum Node.js runtime to 20.19 and tightens SQL, configuration and error contracts. Existing environment files and read-only defaults remain supported.
+
 ### Changed
+
+- Retain mysql2's disabled-by-default cleartext-authentication policy. Document the 3.22.0 driver behavior change and why existing env files cannot override it; no authentication opt-in or TLS weakening is introduced.
 
 - Migrated to the current official MCP SDK v2 and Zod v4. The stdio entry point serves the 2026-07-28 protocol and legacy initialize-based clients from one implementation.
 - Retained the package, executable, tool name/arguments, default Markdown, JSON envelope, environment variable names and schema resource URI patterns. Requires Node.js 20.19+; Node.js 18 users must upgrade their runtime.
@@ -40,13 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a separate reversible Mac preview and fixed read-only smoke helper using the existing env file, with write mode forcibly disabled and no write/rejection/mock checks in the local trial.
 - Added dummy-password regression coverage for special characters and documented dotenv quoting, shell expansion, JSON configuration and environment precedence without URL encoding or credential changes.
-- Prepared exact-tag CI, version/changelog validation, draft GitHub releases with checksummed tarballs, and protected npm trusted publishing with provenance. No release, npm publication, security-setting change or merge is performed by this code change.
+- Prepared exact-tag CI, version/changelog validation, draft GitHub releases with checksummed tarballs, and environment-scoped npm trusted publishing with provenance. No release, npm publication, security-setting change or merge is performed by this code change.
 
 ### Development
 
 - Added isolated configuration, SQL safety, formatting, pool lifecycle and in-memory MCP contract tests.
 - Added read-only database integration tests covering existing system-schema metadata, exact values, current/legacy protocol clients, environment files, built CLI operation and shutdown. Write/rejection coverage uses isolated cloud unit mocks only.
-- Added SHA-pinned GitHub Actions quality checks on Node.js 20.19/22/24, database jobs for MySQL 8.0/8.4 and MariaDB 11.4, and a reviewable npm package artifact. Added validated draft releases and protected npm OIDC publication from reviewed release assets.
+- Added SHA-pinned GitHub Actions quality checks on Node.js 20.19/22/24, database jobs for MySQL 8.0/8.4 and MariaDB 11.4, and a reviewable npm package artifact. Added validated draft releases and npm OIDC publication from reviewed release assets with optional GitHub environment approval.
 - Added strict source/test type checks, ESLint flat configuration, formatting, coverage tooling, dependency maintenance, package allowlisting, contributor/security documentation and an architecture guide.
 
 ## [1.0.0] - 2025-01-12
