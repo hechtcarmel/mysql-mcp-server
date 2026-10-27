@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep startup connectivity testing on the original plain SELECT 1 protocol instead of requiring prepared-statement support for a constant read.
+
 - Bind all metadata query parameters. The previous client executed SQL containing unbound placeholders.
 - Retrieve database table counts in one aggregated query, preserve identifier case, handle encoded resource names and join foreign-key metadata using schema/table/constraint identity.
 - Remove hardcoded server version, misleading pool statistics, swallowed resource errors, package-manager-specific install hooks and documentation links to missing files.

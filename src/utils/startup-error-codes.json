@@ -49,5 +49,6 @@
   "PROTOCOL_PACKETS_OUT_OF_ORDER": "database-handshake-failed",
   "PROTOCOL_INCORRECT_PACKET_SEQUENCE": "database-handshake-failed",
   "ER_PARSE_ERROR": "database-startup-query-failed",
-  "ER_SYNTAX_ERROR": "database-startup-query-failed"
+  "ER_SYNTAX_ERROR": "database-startup-query-failed",
+  "ER_UNSUPPORTED_PS": "database-prepared-statements-unsupported"
 }

@@ -83,6 +83,12 @@ describe('pool lifecycle and bounded execution', () => {
     expect(execute).toHaveBeenCalledWith('SELECT ? AS name', ["x' OR 1=1 --"]);
     expect(connection.release).toHaveBeenCalledOnce();
   });
+  it('tests startup with one plain constant read rather than requiring prepared statements', async () => {
+    expect(await client.testConnection()).toBe(true);
+    expect(promiseQuery).toHaveBeenCalledExactlyOnceWith('SELECT 1');
+    expect(execute).not.toHaveBeenCalled();
+    expect(connection.release).toHaveBeenCalledOnce();
+  });
   it('preserves startup handshake errors before issuing the fixed read', async () => {
     const error = Object.assign(new Error('dummy-secret'), { code: 'HANDSHAKE_SSL_ERROR' });
     pool.getConnection.mockImplementationOnce(callback => callback(error, connection));

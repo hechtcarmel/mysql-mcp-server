@@ -108,7 +108,11 @@ export class MySQLClient {
   }
 
   async testConnection(): Promise<boolean> {
-    await this.executeQuery('SELECT 1');
+    // Connectivity needs only the text protocol, as in the previous release.
+    // Do not require prepared-statement support for this fixed constant read.
+    await this.withConnection(async connection => {
+      await connection.promise().query('SELECT 1');
+    });
     return true;
   }
 

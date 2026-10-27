@@ -22,7 +22,8 @@ describe('secret-safe startup evidence', () => {
     ['ER_NOT_SUPPORTED_AUTH_MODE', 'database-authentication-mode-unsupported'],
     ['ER_SECURE_TRANSPORT_REQUIRED', 'database-secure-transport-required'],
     ['ERR_INVALID_ARG_TYPE', 'driver-configuration-invalid'],
-    ['ER_CON_COUNT_ERROR', 'database-connection-limit']
+    ['ER_CON_COUNT_ERROR', 'database-connection-limit'],
+    ['ER_UNSUPPORTED_PS', 'database-prepared-statements-unsupported']
   ])('classifies %s only in the database connection phase', (code, category) => {
     const error = Object.assign(new Error('dummy-secret-host'), { code });
     expect(startupCategory('database-connect', error)).toBe(category);
