@@ -44,7 +44,8 @@ try {
     'AGENTS.md',
     'SECURITY.md',
     'docs/architecture.md',
-    'scripts/local-smoke.mjs'
+    'scripts/local-smoke.mjs',
+    'scripts/smoke-transport.mjs'
   ]) {
     assert(existsSync(join(installed, file)), `Missing package file: ${file}`);
   }

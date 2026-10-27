@@ -68,7 +68,12 @@ export class MySQLClient {
       abort = () => cancel(new Error('Query cancelled; a write may have completed before cancellation'));
       signal?.addEventListener('abort', abort, { once: true });
       timer = setTimeout(
-        () => cancel(new Error(`Query execution timeout exceeded (${timeout}ms); a write may have completed`)),
+        () =>
+          cancel(
+            Object.assign(new Error(`Query execution timeout exceeded (${timeout}ms); a write may have completed`), {
+              code: 'MYSQL_REQUEST_TIMEOUT'
+            })
+          ),
         timeout
       );
     });

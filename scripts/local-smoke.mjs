@@ -2,6 +2,7 @@
 import { realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, isAbsolute } from 'node:path';
+import { createObservedStdioTransport } from './smoke-transport.mjs';
 
 class SmokeFailure extends Error {
   constructor(category) {
@@ -9,39 +10,98 @@ class SmokeFailure extends Error {
     this.category = category;
   }
 }
-const knownCodes = new Map([
-  ['ER_ACCESS_DENIED_ERROR', 'database-access-denied'],
-  ['ER_DBACCESS_DENIED_ERROR', 'database-access-denied'],
-  ['ER_BAD_DB_ERROR', 'database-name-unavailable'],
-  ['ECONNREFUSED', 'database-unreachable'],
-  ['ENOTFOUND', 'database-host-unavailable'],
-  ['ETIMEDOUT', 'connection-timeout'],
+const localCodes = new Map([
   ['ENOENT', 'local-file-unavailable'],
   ['EACCES', 'local-file-permission'],
-  ['CERT_HAS_EXPIRED', 'tls-certificate-invalid'],
-  ['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'tls-certificate-invalid'],
-  ['ERR_TLS_CERT_ALTNAME_INVALID', 'tls-certificate-invalid']
+  ['EPERM', 'local-file-permission']
+]);
+const stages = new Set(['configuration', 'database-pool', 'database-connect', 'mcp-transport']);
+const categories = new Set([
+  'configuration-file-unavailable',
+  'required-configuration-missing',
+  'configuration-boolean-invalid',
+  'configuration-number-invalid',
+  'tls-configuration-incomplete',
+  'tls-file-unavailable',
+  'configuration-parse-failed',
+  'database-authentication-denied',
+  'database-access-denied',
+  'database-default-schema-unavailable',
+  'database-connection-refused',
+  'database-host-lookup-failed',
+  'database-network-unreachable',
+  'database-connect-timeout',
+  'database-connection-reset',
+  'database-connection-lost',
+  'tls-certificate-invalid',
+  'tls-material-invalid',
+  'mcp-server-startup-failed',
+  'server-startup-failed'
+]);
+const sdkCodes = new Set([
+  'REQUEST_TIMEOUT',
+  'CONNECTION_CLOSED',
+  'ERA_NEGOTIATION_FAILED',
+  'INVALID_RESULT',
+  'NOT_CONNECTED',
+  'SEND_FAILED',
+  'SMOKE_INVALID_PROTOCOL',
+  'SMOKE_STDIO_FAILED',
+  'SMOKE_SPAWN_FAILED'
 ]);
 let stage = 'validate-input';
-let serverCategory;
-function report(status, category) {
-  // Never echo file paths, server stderr, query responses, or error messages.
+let startup = { seen: false, stage: null, status: null, category: null, ready: false, nodeFailure: null };
+let observation;
+function evidence() {
+  return { startup: { ...startup }, candidate: observation?.snapshot() ?? null };
+}
+function report(status, category, details) {
   process.stderr.write(
-    JSON.stringify({ component: 'mysql-readonly-smoke', stage, status, ...(category && { category }) }) + '\n'
+    JSON.stringify({
+      component: 'mysql-readonly-smoke',
+      stage,
+      status,
+      ...(category && { category }),
+      ...(details && { evidence: details })
+    }) + '\n'
   );
 }
 async function runStage(name, work) {
   stage = name;
   report('started');
-  const value = await work();
+  const result = await work();
   report('passed');
-  return value;
+  return result;
 }
 function categoryFor(error) {
   if (error instanceof SmokeFailure) return error.category;
-  if (serverCategory) return serverCategory;
-  if (error && typeof error.code === 'string' && knownCodes.has(error.code)) return knownCodes.get(error.code);
-  return 'connection-or-protocol-check-failed';
+  const facts = observation?.snapshot();
+  if (startup.category) return startup.category;
+  if (facts?.spawnError)
+    return facts.spawnError === 'ENOENT' ? 'candidate-executable-unavailable' : 'candidate-spawn-failed';
+  if (startup.nodeFailure) return startup.nodeFailure;
+  if (facts?.invalidProtocolMessage) return 'mcp-invalid-stdout';
+  if (facts?.exitBeforeCleanup && !startup.ready)
+    return facts.exitSignal ? 'candidate-terminated-before-ready' : 'candidate-exited-before-ready';
+  if (error?.code === 'REQUEST_TIMEOUT') return 'mcp-handshake-timeout';
+  if (facts?.rpcErrorCode === -32601) return 'mcp-method-unavailable';
+  if (facts?.rpcErrorCode) return 'mcp-protocol-request-rejected';
+  if (error?.code === 'ERA_NEGOTIATION_FAILED')
+    return facts?.receivedMessages === 0 ? 'mcp-no-protocol-response' : 'mcp-version-negotiation-failed';
+  if (error?.code === 'INVALID_RESULT') return 'mcp-invalid-response';
+  if (error?.code === 'CONNECTION_CLOSED')
+    return startup.ready ? 'mcp-transport-closed' : 'candidate-transport-closed-before-ready';
+  if (facts?.ioError || error?.code === 'SMOKE_STDIO_FAILED') return 'mcp-stdio-failed';
+  if ((stage === 'validate-input' || stage === 'load-preview') && localCodes.has(error?.code))
+    return localCodes.get(error.code);
+  return stage === 'connect' ? 'mcp-connection-failed' : 'mcp-check-failed';
+}
+function errorCode(error) {
+  return sdkCodes.has(error?.code)
+    ? error.code
+    : [-32700, -32600, -32601, -32602, -32603, -32022].includes(error?.code)
+      ? error.code
+      : null;
 }
 function captureSafeDiagnostics(stream) {
   let pending = '';
@@ -52,19 +112,26 @@ function captureSafeDiagnostics(stream) {
     if (pending.length > 4096) pending = '';
     for (const line of lines) {
       if (line.length > 4096) continue;
+      // Recognize only fixed Node failure signatures, never echo the source line.
+      if (/\b(?:ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_PACKAGE_PATH_NOT_EXPORTED|ERR_REQUIRE_ESM)\b/.test(line))
+        startup.nodeFailure = 'candidate-module-load-failed';
+      if (/^SyntaxError:/.test(line)) startup.nodeFailure = 'candidate-syntax-error';
       try {
         const record = JSON.parse(line);
-        if (record && typeof record.code === 'string' && knownCodes.has(record.code)) {
-          serverCategory = knownCodes.get(record.code);
-        } else if (record?.level === 'error' && typeof record.message === 'string') {
-          if (record.message === 'Could not read configured MySQL TLS files; check paths and permissions')
-            serverCategory = 'tls-file-unavailable';
-          if (record.message === 'Failed to load MYSQL_ENV_FILE') serverCategory = 'configuration-file-unavailable';
-          if (record.message.startsWith('Missing required environment variables:'))
-            serverCategory = 'required-configuration-missing';
-        }
+        if (
+          record?.event !== 'mysql-startup' ||
+          !stages.has(record.stage) ||
+          !['started', 'ready', 'failed'].includes(record.status)
+        )
+          continue;
+        startup.seen = true;
+        startup.stage = record.stage;
+        startup.status = record.status;
+        if (record.stage === 'mcp-transport' && record.status === 'ready') startup.ready = true;
+        if (record.status === 'failed')
+          startup.category = categories.has(record.category) ? record.category : 'server-startup-failed';
       } catch {
-        /* Drain unrecognized diagnostics without printing them. */
+        /* Drain all other stderr without retaining or printing it. */
       }
     }
   });
@@ -94,21 +161,21 @@ async function main() {
     });
     await runStage('load-preview', () => {
       const requirePreview = createRequire(join(input.preview, 'package.json'));
-      const { Client } = requirePreview('@modelcontextprotocol/client');
-      const { StdioClientTransport } = requirePreview('@modelcontextprotocol/client/stdio');
+      const { Client, deserializeMessage, serializeMessage } = requirePreview('@modelcontextprotocol/client');
+      const { getDefaultEnvironment } = requirePreview('@modelcontextprotocol/client/stdio');
       client = new Client(
         { name: 'mysql-mcp-local-readonly-smoke', version: '1' },
         {
-          versionNegotiation: { mode: 'auto', probe: { timeoutMs: 15000, maxRetries: 0 } }
+          versionNegotiation: { mode: { pin: '2026-07-28' } }
         }
       );
-      transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [input.entry],
-        // Existing credentials stay in the file; no inherited password override is forwarded.
-        env: { MYSQL_ENV_FILE: input.file, MYSQL_ALLOW_WRITE: 'false' },
-        stderr: 'pipe'
+      transport = createObservedStdioTransport({
+        entry: input.entry,
+        deserializeMessage,
+        serializeMessage,
+        env: { ...getDefaultEnvironment(), MYSQL_ENV_FILE: input.file, MYSQL_ALLOW_WRITE: 'false' }
       });
+      observation = transport;
       captureSafeDiagnostics(transport.stderr);
     });
     await runStage('connect', async () => {
@@ -153,12 +220,18 @@ async function main() {
       }
     });
   } catch (error) {
-    failed = { failedStage: stage, category: categoryFor(error) };
-    report('failed', failed.category);
+    failed = { failedStage: stage, category: categoryFor(error), errorCode: errorCode(error), evidence: evidence() };
+    report('failed', failed.category, failed.evidence);
   } finally {
     if (client) {
       try {
-        await runStage('cleanup', () => client.close());
+        await runStage('cleanup', async () => {
+          try {
+            await client.close();
+          } finally {
+            await transport?.close();
+          }
+        });
       } catch {
         report('failed', 'cleanup-failed');
         failed ??= { failedStage: 'cleanup', category: 'cleanup-failed' };
@@ -167,13 +240,16 @@ async function main() {
   }
   if (failed) {
     process.exitCode = 1;
-    process.stdout.write(JSON.stringify({ ok: false, ...failed }) + '\n');
+    process.stdout.write(
+      JSON.stringify({ ok: false, ...failed, finalCandidate: observation?.snapshot() ?? null }) + '\n'
+    );
   } else {
     process.stdout.write(
       JSON.stringify({
         ok: true,
         mode: 'READ_ONLY',
         protocolEra,
+        candidate: observation?.snapshot() ?? null,
         checks: ['env-file connection', 'read-only annotations', 'SELECT 1', 'resource templates']
       }) + '\n'
     );

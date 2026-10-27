@@ -191,7 +191,7 @@ MYSQL_TEST_USER=root MYSQL_TEST_PASSWORD=mcp-test-password pnpm test:integration
 docker stop mysql-mcp-test
 ```
 
-CI runs quality checks on Node.js 20.19, 22, and 24; separate integration jobs exercise MySQL 8.0, MySQL 8.4, and MariaDB 11.4. It also builds an npm tarball for review. Release preparation and approved npm OIDC publication are documented in [docs/releases.md](docs/releases.md); neither is run by ordinary CI.
+CI runs quality checks on Node.js 20.19, 22, 24.15.0 (the Mac trial runtime), and the current 24 release; separate integration jobs exercise MySQL 8.0, MySQL 8.4, and MariaDB 11.4. It also builds an npm tarball for review. Release preparation and approved npm OIDC publication are documented in [docs/releases.md](docs/releases.md); neither is run by ordinary CI.
 
 `pnpm test:package` uses the same explicit `MYSQL_TEST_*` variables to build a tarball, install only its runtime dependencies in a temporary directory, inspect its contents, and run the CLI integration suite against the installed package. It requires npm registry access and cleans up afterward.
 
@@ -199,7 +199,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the project structure and verificatio
 
 ## Troubleshooting
 
-- **Startup fails:** check Node.js, required variables, the explicit environment file, TLS file permissions, and MySQL grants. Diagnostic logs go to stderr; stdout is reserved for MCP messages.
+- **Startup fails:** check Node.js, required variables, the explicit environment file, TLS file permissions, and MySQL grants. Diagnostic logs go to stderr; stdout is reserved for MCP messages. `mysql-startup` events identify the configuration, pool, database connection, and MCP transport phases with fixed error categories; they do not include connection values or raw driver errors.
 - **Unqualified table fails:** set `MYSQL_DATABASE` or use `database.table`.
 - **Query blocked:** check the SQL policy and operation mode. Enable writes only in the server's environment, then restart the client.
 - **Timeout:** narrow the query, inspect its plan, or adjust `MYSQL_QUERY_TIMEOUT`. Check a write's outcome before retrying.

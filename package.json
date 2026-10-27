@@ -81,6 +81,7 @@
     "SECURITY.md",
     ".env.example",
     "docs",
-    "scripts/local-smoke.mjs"
+    "scripts/local-smoke.mjs",
+    "scripts/smoke-transport.mjs"
   ]
 }
