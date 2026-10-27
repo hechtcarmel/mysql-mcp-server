@@ -185,6 +185,7 @@ describe('MCP contracts and compatibility', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     logQuery("INSERT INTO db.t VALUES ('super-secret')", OperationMode.WRITE_ENABLED, true);
     logError('Query failed', { code: 'ER_PARSE_ERROR', sql: 'super-secret', password: 'super-secret' });
+    logError('Unknown failure', { code: 'super-secret' });
     expect(JSON.stringify(log.mock.calls)).not.toContain('super-secret');
     expect(
       handleQueryError({ code: 'ER_UNKNOWN', sql: 'super-secret', sqlMessage: 'super-secret' }, 30000)

@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Local validation and release controls
 
+- Preserve bounded allowlisted startup error classes/codes and nested causes in smoke evidence. Classify mysql2 TLS/authentication handshake failures, disabled cleartext authentication, server policy errors and invalid driver options without exposing raw messages or changing TLS/authentication behavior.
+
 - Capture one observed smoke process with explicit exit/signal evidence and secret-safe configuration/startup/transport/protocol/database categories. Pin the expected modern protocol so an invisible disposable probe cannot discard startup diagnostics. The earlier Mac connection failure remains unclassified until a corrected local retry.
 - Add isolated real-SDK process regressions and a CI runtime matching the Mac's Node.js 24.15.0. Real local checks remain limited to SELECT 1 and MCP metadata.
 

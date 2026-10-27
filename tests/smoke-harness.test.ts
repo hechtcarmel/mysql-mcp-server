@@ -47,7 +47,11 @@ function fixture() {
   );
   writeFileSync(join(pkg, 'stdio.cjs'), 'module.exports.getDefaultEnvironment = () => ({PATH:process.env.PATH});');
   const serverDir = join(prefix, 'node_modules/@hechtcarmel/mysql-mcp-server/dist');
-  mkdirSync(serverDir, { recursive: true });
+  mkdirSync(join(serverDir, 'utils'), { recursive: true });
+  writeFileSync(
+    join(serverDir, 'utils/startup-error-codes.json'),
+    readFileSync(new URL('../src/utils/startup-error-codes.json', import.meta.url))
+  );
   writeFileSync(
     join(serverDir, 'index.js'),
     `const fs=require('node:fs'); fs.appendFileSync(${JSON.stringify(join(root, 'trace.jsonl'))}, JSON.stringify({name:'candidate-environment',data:{MYSQL_ENV_FILE:process.env.MYSQL_ENV_FILE,MYSQL_ALLOW_WRITE:process.env.MYSQL_ALLOW_WRITE,hasPassword:Object.hasOwn(process.env,'MYSQL_PASSWORD')}})+'\\n'); process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`

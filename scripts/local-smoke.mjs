@@ -1,7 +1,7 @@
 // Real Mac trial only: one fixed SELECT plus MCP metadata. No aggregate suites.
-import { realpathSync, statSync } from 'node:fs';
+import { realpathSync, statSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, dirname } from 'node:path';
 import { createObservedStdioTransport } from './smoke-transport.mjs';
 
 class SmokeFailure extends Error {
@@ -49,8 +49,11 @@ const sdkCodes = new Set([
   'SMOKE_STDIO_FAILED',
   'SMOKE_SPAWN_FAILED'
 ]);
+let startupCodes = new Set();
+const errorClasses = new Set(['AggregateError', 'TypeError', 'RangeError', 'SyntaxError', 'Error', 'NonError']);
+const codeStates = new Set(['recognized', 'missing', 'unrecognized']);
 let stage = 'validate-input';
-let startup = { seen: false, stage: null, status: null, category: null, ready: false, nodeFailure: null };
+let startup = { seen: false, stage: null, status: null, category: null, error: null, ready: false, nodeFailure: null };
 let observation;
 function evidence() {
   return { startup: { ...startup }, candidate: observation?.snapshot() ?? null };
@@ -103,6 +106,20 @@ function errorCode(error) {
       ? error.code
       : null;
 }
+function safeErrorSummary(record) {
+  return {
+    errorClass: errorClasses.has(record?.errorClass) ? record.errorClass : 'NonError',
+    code: startupCodes.has(record?.code) ? record.code : null,
+    codeStatus: codeStates.has(record?.codeStatus) ? record.codeStatus : 'unrecognized'
+  };
+}
+function safeErrorDetails(record) {
+  return {
+    ...safeErrorSummary(record),
+    causes: Array.isArray(record?.causes) ? record.causes.slice(0, 7).map(safeErrorSummary) : [],
+    truncated: record?.truncated === true || (Array.isArray(record?.causes) && record.causes.length > 7)
+  };
+}
 function captureSafeDiagnostics(stream) {
   let pending = '';
   stream?.on('data', chunk => {
@@ -128,8 +145,10 @@ function captureSafeDiagnostics(stream) {
         startup.stage = record.stage;
         startup.status = record.status;
         if (record.stage === 'mcp-transport' && record.status === 'ready') startup.ready = true;
-        if (record.status === 'failed')
+        if (record.status === 'failed') {
           startup.category = categories.has(record.category) ? record.category : 'server-startup-failed';
+          startup.error = safeErrorDetails(record.error);
+        }
       } catch {
         /* Drain all other stderr without retaining or printing it. */
       }
@@ -160,6 +179,9 @@ async function main() {
       return { preview, file, entry };
     });
     await runStage('load-preview', () => {
+      const catalog = JSON.parse(readFileSync(join(dirname(input.entry), 'utils/startup-error-codes.json'), 'utf8'));
+      startupCodes = new Set(Object.keys(catalog));
+      for (const category of Object.values(catalog)) categories.add(category);
       const requirePreview = createRequire(join(input.preview, 'package.json'));
       const { Client, deserializeMessage, serializeMessage } = requirePreview('@modelcontextprotocol/client');
       const { getDefaultEnvironment } = requirePreview('@modelcontextprotocol/client/stdio');

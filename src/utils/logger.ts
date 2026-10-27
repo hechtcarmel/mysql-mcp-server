@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { startupErrorDetails } from './startup-diagnostics.js';
 import { type OperationMode, type QueryType } from '../types.js';
 
 export function logInfo(message: string): void {
@@ -6,7 +7,7 @@ export function logInfo(message: string): void {
 }
 export function logError(message: string, error?: unknown): void {
   // Driver error objects can contain SQL, values, and credentials. Log only an error code.
-  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined;
+  const code = startupErrorDetails(error).code ?? undefined;
   console.error(JSON.stringify({ level: 'error', time: new Date().toISOString(), message, code }));
 }
 export function logQuery(query: string, mode: OperationMode, allowed: boolean, queryType?: QueryType): void {

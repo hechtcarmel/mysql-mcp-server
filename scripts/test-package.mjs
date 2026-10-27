@@ -40,6 +40,7 @@ try {
   assert.equal(manifest.scripts.prepare, undefined, 'Tarball installation must not need a build or pnpm');
   for (const file of [
     'dist/index.js',
+    'dist/utils/startup-error-codes.json',
     '.env.example',
     'AGENTS.md',
     'SECURITY.md',

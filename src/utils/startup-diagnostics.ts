@@ -1,3 +1,4 @@
+import connectionCategories from './startup-error-codes.json' with { type: 'json' };
 /** Machine-readable startup evidence. Never includes host, paths, values or raw errors. */
 export type StartupStage = 'configuration' | 'database-pool' | 'database-connect' | 'mcp-transport';
 export class ConfigurationError extends Error {
@@ -16,35 +17,80 @@ const configurationCategories = new Set([
   'tls-configuration-incomplete',
   'tls-file-unavailable'
 ]);
-const connectionCategories: Record<string, string> = {
-  ER_ACCESS_DENIED_ERROR: 'database-authentication-denied',
-  ER_DBACCESS_DENIED_ERROR: 'database-access-denied',
-  ER_BAD_DB_ERROR: 'database-default-schema-unavailable',
-  ECONNREFUSED: 'database-connection-refused',
-  ENOTFOUND: 'database-host-lookup-failed',
-  EAI_AGAIN: 'database-host-lookup-failed',
-  ENETUNREACH: 'database-network-unreachable',
-  EHOSTUNREACH: 'database-network-unreachable',
-  ETIMEDOUT: 'database-connect-timeout',
-  MYSQL_REQUEST_TIMEOUT: 'database-connect-timeout',
-  ECONNRESET: 'database-connection-reset',
-  PROTOCOL_CONNECTION_LOST: 'database-connection-lost',
-  CERT_HAS_EXPIRED: 'tls-certificate-invalid',
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'tls-certificate-invalid',
-  DEPTH_ZERO_SELF_SIGNED_CERT: 'tls-certificate-invalid',
-  SELF_SIGNED_CERT_IN_CHAIN: 'tls-certificate-invalid',
-  ERR_TLS_CERT_ALTNAME_INVALID: 'tls-certificate-invalid',
-  ERR_OSSL_PEM_NO_START_LINE: 'tls-material-invalid'
-};
+/** Values are deliberately fixed: no error names, code strings or messages pass through. */
+export interface StartupErrorSummary {
+  errorClass: 'AggregateError' | 'TypeError' | 'RangeError' | 'SyntaxError' | 'Error' | 'NonError';
+  code: string | null;
+  codeStatus: 'recognized' | 'missing' | 'unrecognized';
+}
+export interface StartupErrorDetails extends StartupErrorSummary {
+  causes: StartupErrorSummary[];
+  truncated: boolean;
+}
+function property(error: unknown, key: string): unknown {
+  try {
+    return error && typeof error === 'object' ? Reflect.get(error, key) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function summary(error: unknown): StartupErrorSummary {
+  const code = property(error, 'code');
+  const recognized = typeof code === 'string' && Object.hasOwn(connectionCategories, code);
+  return {
+    errorClass:
+      error instanceof AggregateError
+        ? 'AggregateError'
+        : error instanceof TypeError
+          ? 'TypeError'
+          : error instanceof RangeError
+            ? 'RangeError'
+            : error instanceof SyntaxError
+              ? 'SyntaxError'
+              : error instanceof Error
+                ? 'Error'
+                : 'NonError',
+    code: recognized ? code : null,
+    codeStatus: recognized ? 'recognized' : code === undefined || code === null ? 'missing' : 'unrecognized'
+  };
+}
+export function startupErrorDetails(error: unknown): StartupErrorDetails {
+  const result: StartupErrorDetails = { ...summary(error), causes: [], truncated: false };
+  const queue = [{ error, depth: 0 }];
+  const seen = new Set<unknown>();
+  // At most eight distinct nodes and three levels, even for cycles/aggregates.
+  while (queue.length && seen.size < 8) {
+    const node = queue.shift()!;
+    if (seen.has(node.error)) continue;
+    seen.add(node.error);
+    if (node.depth) result.causes.push(summary(node.error));
+    const cause = property(node.error, 'cause');
+    const errors = property(node.error, 'errors');
+    const children = [
+      ...(cause === undefined ? [] : [cause]),
+      ...(Array.isArray(errors) ? (errors as unknown[]).slice(0, 8) : [])
+    ];
+    if (Array.isArray(errors) && errors.length > 8) result.truncated = true;
+    if (node.depth >= 2) {
+      if (children.length) result.truncated = true;
+      continue;
+    }
+    for (const child of children) if (!seen.has(child)) queue.push({ error: child, depth: node.depth + 1 });
+  }
+  if (queue.length) result.truncated = true;
+  return result;
+}
 export function startupCategory(stage: StartupStage, error: unknown): string {
   if (stage === 'configuration')
     return error instanceof ConfigurationError && configurationCategories.has(error.category)
       ? error.category
       : 'configuration-parse-failed';
-  const code =
-    error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : '';
-  if (stage === 'database-connect' && Object.hasOwn(connectionCategories, code)) return connectionCategories[code]!;
-  if (stage === 'database-pool' && code.startsWith('ERR_OSSL_')) return 'tls-material-invalid';
+  if (stage === 'database-connect' || stage === 'database-pool') {
+    const details = startupErrorDetails(error);
+    for (const item of [details, ...details.causes]) {
+      if (item.code) return connectionCategories[item.code as keyof typeof connectionCategories];
+    }
+  }
   return stage === 'mcp-transport' ? 'mcp-server-startup-failed' : 'server-startup-failed';
 }
 export function logStartup(stage: StartupStage, status: 'started' | 'ready' | 'failed', error?: unknown): void {
@@ -54,7 +100,7 @@ export function logStartup(stage: StartupStage, status: 'started' | 'ready' | 'f
       event: 'mysql-startup',
       stage,
       status,
-      ...(status === 'failed' && { category: startupCategory(stage, error) })
+      ...(status === 'failed' && { category: startupCategory(stage, error), error: startupErrorDetails(error) })
     })
   );
 }

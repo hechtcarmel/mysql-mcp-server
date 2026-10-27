@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
+import { startupErrorDetails } from '../src/utils/startup-diagnostics.js';
 const roots: string[] = [];
 const clientRoot = dirname(dirname(createRequire(import.meta.url).resolve('@modelcontextprotocol/client')));
 const fixtureRequire = createRequire(import.meta.url);
@@ -24,7 +25,11 @@ function run(program: string) {
   mkdirSync(sdkParent, { recursive: true });
   symlinkSync(clientRoot, join(sdkParent, 'client'), 'dir');
   const dist = join(root, 'node_modules/@hechtcarmel/mysql-mcp-server/dist');
-  mkdirSync(dist, { recursive: true });
+  mkdirSync(join(dist, 'utils'), { recursive: true });
+  writeFileSync(
+    join(dist, 'utils/startup-error-codes.json'),
+    readFileSync(new URL('../src/utils/startup-error-codes.json', import.meta.url))
+  );
   writeFileSync(join(root, 'package.json'), '{"private":true}');
   writeFileSync(
     join(dist, 'index.js'),
@@ -46,8 +51,8 @@ function run(program: string) {
     launches: readFileSync(join(root, 'launches'), 'utf8').trim().split('\n').length
   };
 }
-function startup(stage: string, category: string) {
-  return `process.stderr.write(JSON.stringify({event:'mysql-startup',stage:${JSON.stringify(stage)},status:'failed',category:${JSON.stringify(category)},message:${JSON.stringify(secret)}})+'\\n');process.exitCode=7;`;
+function startup(stage: string, category: string, error?: unknown) {
+  return `process.stderr.write(JSON.stringify({event:'mysql-startup',stage:${JSON.stringify(stage)},status:'failed',category:${JSON.stringify(category)},error:${JSON.stringify(error)},message:${JSON.stringify(secret)}})+'\\n');process.exitCode=7;`;
 }
 describe('observed startup failures with the real MCP SDK', () => {
   it('completes the full helper against an isolated SDK server with no database', () => {
@@ -90,6 +95,34 @@ describe('observed startup failures with the real MCP SDK', () => {
     const { result } = run(startup('database-connect', 'database-authentication-denied'));
     expect(result.category).toBe('database-authentication-denied');
     expect(result.evidence.startup.stage).toBe('database-connect');
+  });
+  it.each([
+    ['HANDSHAKE_SSL_ERROR', 'tls-handshake-failed'],
+    ['MYSQL_CLEAR_PASSWORD_NOT_ENABLED', 'database-cleartext-authentication-disabled']
+  ])('retains the allowlisted %s failure through the complete helper without enabling it', (code, category) => {
+    const details = startupErrorDetails(Object.assign(new Error(secret), { code }));
+    const { result } = run(startup('database-connect', category, details));
+    expect(result.category).toBe(category);
+    expect(result.evidence.startup.error).toMatchObject({ errorClass: 'Error', code, codeStatus: 'recognized' });
+    expect(result.finalCandidate).toMatchObject({ exitCode: 7, exitBeforeCleanup: true });
+  });
+  it('resanitizes spoofed diagnostic values and bounds nested details', () => {
+    const malicious = {
+      errorClass: secret,
+      code: secret,
+      codeStatus: secret,
+      causes: Array.from({ length: 20 }, () => ({ errorClass: 'TypeError', code: secret, codeStatus: secret })),
+      message: secret
+    };
+    const { result } = run(startup('database-connect', 'server-startup-failed', malicious));
+    expect(result.evidence.startup.error).toMatchObject({
+      errorClass: 'NonError',
+      code: null,
+      codeStatus: 'unrecognized',
+      truncated: true
+    });
+    expect(result.evidence.startup.error.causes).toHaveLength(7);
+    expect(JSON.stringify(result)).not.toContain(secret);
   });
   it('does not infer a database fault from an opaque early process exit', () => {
     const { result } = run('process.exitCode=9;');
