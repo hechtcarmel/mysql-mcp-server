@@ -13,7 +13,7 @@ Prepared for release; publication remains gated on final CI and read-only local 
 
 ### Changed
 
-- Add explicit MYSQL_ENABLE_CLEARTEXT_PLUGIN opt-in, disabled by default. Require certificate-chain and DNS endpoint-identity verified TLS before authentication, then recheck the actual TLS socket and credential context in the guarded plugin. Keep the driver's unguarded built-in shortcut disabled; refuse IP literals, plaintext/unverified TLS and unexpected credential changes. Existing env credentials and read-only SQL defaults remain unchanged.
+- Accept mysql_clear_password by default with existing env credentials, including when TLS is disabled; MYSQL_ENABLE_CLEARTEXT_PLUGIN=false opts out. Document that passwords are sent unencrypted without TLS and recommend verified TLS. Configured TLS always requires TLS 1.2+, certificate-chain verification and a certificate-matching DNS host, even with the plugin off; disabled verification and IP hosts are refused in TLS mode. Never fall back from failed TLS to plaintext. Recheck the selected transport, endpoint and credential context in the custom plugin while keeping the driver's unguarded shortcut disabled. Read-only SQL defaults remain unchanged.
 
 - Migrated to the current official MCP SDK v2 and Zod v4. The stdio entry point serves the 2026-07-28 protocol and legacy initialize-based clients from one implementation.
 - Retained the package, executable, tool name/arguments, default Markdown, JSON envelope, environment variable names and schema resource URI patterns. Requires Node.js 20.19+; Node.js 18 users must upgrade their runtime.

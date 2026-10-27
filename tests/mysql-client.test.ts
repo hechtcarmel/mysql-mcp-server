@@ -83,15 +83,14 @@ describe('pool lifecycle and bounded execution', () => {
     expect(execute).toHaveBeenCalledWith('SELECT ? AS name', ["x' OR 1=1 --"]);
     expect(connection.release).toHaveBeenCalledOnce();
   });
-  it('installs only the guarded plugin and verified identity options when explicitly enabled', async () => {
+  it('installs the guarded default plugin and verified identity options for TLS', async () => {
     await client.close();
     client = new MySQLClient(
       parseConfig({
         MYSQL_HOST: 'db.example.test',
         MYSQL_USER: 'dummy',
         MYSQL_PASSWORD: 'dummy',
-        MYSQL_SSL: 'true',
-        MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'true'
+        MYSQL_SSL: 'true'
       })
     );
     client.initialize();
@@ -100,6 +99,19 @@ describe('pool lifecycle and bounded execution', () => {
         enableCleartextPlugin: false,
         ssl: { rejectUnauthorized: true, verifyIdentity: true, minVersion: 'TLSv1.2' },
         authPlugins: { mysql_clear_password: expect.any(Function) }
+      })
+    );
+  });
+  it('installs the default plaintext plugin without implicitly enabling TLS or writes', async () => {
+    await client.close();
+    client = new MySQLClient(parseConfig({ MYSQL_HOST: '127.0.0.1', MYSQL_USER: 'dummy', MYSQL_PASSWORD: 'dummy' }));
+    client.initialize();
+    expect(mysql.createPool).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        enableCleartextPlugin: false,
+        ssl: undefined,
+        authPlugins: { mysql_clear_password: expect.any(Function) },
+        multipleStatements: false
       })
     );
   });

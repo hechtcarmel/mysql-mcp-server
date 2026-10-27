@@ -56,6 +56,7 @@
   "MYSQL_CLEARTEXT_TLS_UNVERIFIED": "cleartext-auth-tls-not-verified",
   "MYSQL_CLEARTEXT_IDENTITY_MISMATCH": "cleartext-auth-endpoint-mismatch",
   "MYSQL_CLEARTEXT_CREDENTIAL_CONTEXT_INVALID": "cleartext-auth-credential-context-invalid",
+  "MYSQL_CLEARTEXT_TRANSPORT_MISMATCH": "cleartext-auth-transport-mismatch",
   "UNABLE_TO_GET_ISSUER_CERT": "tls-certificate-chain-unverified",
   "CERT_REVOKED": "tls-certificate-revoked",
   "ERR_SSL_UNKNOWN_PROTOCOL": "tls-protocol-mismatch",

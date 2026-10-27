@@ -14,7 +14,7 @@ import { parseConfig } from '../src/services/config-loader.js';
 import { cleartextAuthOptions } from '../src/services/cleartext-auth.js';
 import { probeMySQLTls } from '../src/services/tls-probe.js';
 import { startupErrorDetails, startupCategory } from '../src/utils/startup-diagnostics.js';
-const password = 'dummy !#$@"\\ Unicode עברית credential';
+const password = String.raw` dummy !#$@:%"'\ Unicode עברית credential `;
 const base = { MYSQL_HOST: 'localhost', MYSQL_USER: 'dummy', MYSQL_PASSWORD: password, MYSQL_SSL: 'true' };
 let directory: string;
 let key: Buffer;
@@ -186,14 +186,17 @@ async function fixture(
         packets(tls);
         socket.resume();
       } else {
-        authentication.push(initial.subarray(4, 4 + length));
-        socket.destroy();
+        if (!secure) packets(socket, initial);
+        else {
+          authentication.push(initial.subarray(4, 4 + length));
+          socket.destroy();
+        }
       }
     };
     socket.on('data', receive);
-    function packets(stream: TLSSocket) {
+    function packets(stream: Socket, first = Buffer.alloc(0)) {
       let pending = Buffer.alloc(0);
-      stream.on('data', (chunk: Buffer) => {
+      const receivePacket = (chunk: Buffer) => {
         pending = Buffer.concat([pending, chunk]);
         while (pending.length >= 4 && pending.length >= 4 + pending.readUIntLE(0, 3)) {
           const size = pending.readUIntLE(0, 3);
@@ -214,7 +217,9 @@ async function fixture(
             } else stream.write(frame(Buffer.from([0, 0, 0, 2, 0, 0, 0]), sequence + 1));
           }
         }
-      });
+      };
+      stream.on('data', receivePacket);
+      if (first.length) receivePacket(first);
     }
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -227,8 +232,15 @@ async function fixture(
     for (const socket of sockets) socket.destroy();
     await new Promise<void>(resolve => server.close(() => resolve()));
   });
-  async function connect(enabled = true, trust = true) {
-    const config = parseConfig({ ...base, MYSQL_ENABLE_CLEARTEXT_PLUGIN: String(enabled) });
+  let connections = 0;
+  server.on('connection', () => connections++);
+  async function connect(enabled?: boolean, trust = true, useTls = true) {
+    const config = parseConfig({
+      ...base,
+      MYSQL_PORT: String(port),
+      MYSQL_SSL: String(useTls),
+      ...(enabled !== undefined && { MYSQL_ENABLE_CLEARTEXT_PLUGIN: String(enabled) })
+    });
     const options = cleartextAuthOptions(config);
     const client = mysql.createConnection({
       host: config.host,
@@ -237,7 +249,7 @@ async function fixture(
       password: config.password,
       connectTimeout: 2500,
       ...options,
-      ssl: { ...(options.ssl as object), ...(trust && { ca: cert }) }
+      ...(useTls && { ssl: { ...(options.ssl as object), ...(trust && { ca: cert }) } })
     });
     clients.push(client);
     await new Promise<void>((resolve, reject) =>
@@ -255,10 +267,35 @@ async function fixture(
     sslRequests,
     authentication,
     wire,
+    connections: () => connections,
     clearResponses: () => clearResponses
   };
 }
-describe('verified TLS cleartext opt-in with the real driver and a dummy endpoint', () => {
+describe('default cleartext authentication with the real driver and dummy endpoints', () => {
+  it.each([false, true])(
+    'accepts plaintext auth-switch/initial plugin requests by default (advertise=%s)',
+    async advertiseClear => {
+      const target = await fixture({ ssl: false, advertiseClear });
+      const { config } = await target.connect(undefined, true, false);
+      expect(config.enableCleartextPlugin).toBe(true);
+      expect(config.ssl).toBeUndefined();
+      expect(config.operationMode).toBe('READ_ONLY');
+      expect(target.clearResponses()).toBe(1);
+      expect(target.authentication[0]!.includes(Buffer.from(password))).toBe(false);
+      expect(target.authentication[1]).toEqual(Buffer.from(password + '\0', 'utf8'));
+      // The wire assertion intentionally documents the public plaintext risk.
+      expect(Buffer.concat(target.wire).includes(Buffer.from(password))).toBe(true);
+      expect(target.sslRequests).toHaveLength(0);
+    }
+  );
+  it('honors an explicit opt-out over plaintext before sending the literal credential', async () => {
+    const target = await fixture({ ssl: false, advertiseClear: true });
+    await expect(target.connect(false, true, false)).rejects.toMatchObject({
+      code: 'MYSQL_CLEAR_PASSWORD_NOT_ENABLED'
+    });
+    expect(target.clearResponses()).toBe(0);
+    expect(Buffer.concat(target.wire).includes(Buffer.from(password))).toBe(false);
+  });
   it.each([false, true])(
     'guards auth-switch and initially advertised cleartext (advertise=%s)',
     async advertiseClear => {
@@ -275,18 +312,23 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
       expect(() => response(Buffer.alloc(0))).toThrowError(
         expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TLS_REQUIRED' })
       );
+      client.config.ssl = undefined;
+      expect(() => response(Buffer.alloc(0))).toThrowError(
+        expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TLS_REQUIRED' })
+      );
     }
   );
-  it('keeps the opt-in disabled by default even over valid TLS', async () => {
+  it('honors an explicit plugin opt-out over valid TLS', async () => {
     const target = await fixture({ advertiseClear: true });
     await expect(target.connect(false)).rejects.toMatchObject({ code: 'MYSQL_CLEAR_PASSWORD_NOT_ENABLED' });
     expect(target.clearResponses()).toBe(0);
   });
-  it('refuses a plaintext-only endpoint before sending authentication', async () => {
+  it('never retries in plaintext when configured TLS is unsupported', async () => {
     const target = await fixture({ ssl: false, advertiseClear: true });
     await expect(target.connect()).rejects.toMatchObject({ code: 'HANDSHAKE_NO_SSL_SUPPORT' });
     expect(target.authentication).toHaveLength(0);
     expect(Buffer.concat(target.wire).includes(Buffer.from(password))).toBe(false);
+    expect(target.connections()).toBe(1);
   });
   it('refuses an untrusted chain before sending authentication', async () => {
     const target = await fixture();
@@ -304,6 +346,7 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
     expect(startupCategory('database-connect', error)).toBe('tls-certificate-chain-unverified');
     expect(target.authentication).toHaveLength(0);
     expect(target.clearResponses()).toBe(0);
+    expect(target.connections()).toBe(1);
   });
   it('refuses a trusted certificate for the wrong endpoint before authentication', async () => {
     const target = await fixture({ wrongIdentity: true });
@@ -321,18 +364,58 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
     expect(startupCategory('database-connect', error)).toBe('tls-endpoint-identity-mismatch');
     expect(target.authentication).toHaveLength(0);
     expect(target.clearResponses()).toBe(0);
+    expect(target.connections()).toBe(1);
   });
-  it('does not reuse the first credential in a second authentication factor', async () => {
-    const target = await fixture({ mfa: true });
+  it.each([false, true])('does not reuse the first credential in a second factor (TLS=%s)', async useTls => {
+    const target = await fixture({ mfa: true, ssl: useTls });
     let failure: unknown;
     try {
-      await target.connect();
+      await target.connect(undefined, true, useTls);
     } catch (error) {
       failure = error;
     }
     expect(failure).toMatchObject({ code: 'MYSQL_CLEARTEXT_CREDENTIAL_CONTEXT_INVALID' });
     expect(startupCategory('database-connect', failure)).toBe('cleartext-auth-credential-context-invalid');
     expect(target.clearResponses()).toBe(1);
+  });
+  it.each(['host', 'port', 'user', 'password'] as const)(
+    'refuses a changed plaintext %s context before another literal credential response',
+    async field => {
+      const target = await fixture({ ssl: false });
+      const { client, config } = await target.connect(undefined, true, false);
+      const response = cleartextAuthOptions(config).authPlugins!.mysql_clear_password!({
+        connection: client,
+        command: 'dummy'
+      });
+      Object.assign(client.config, { [field]: field === 'port' ? config.port + 1 : 'different-dummy-context' });
+      expect(() => response(Buffer.alloc(0))).toThrowError(
+        expect.objectContaining({ code: 'MYSQL_CLEARTEXT_CREDENTIAL_CONTEXT_INVALID' })
+      );
+      expect(target.clearResponses()).toBe(1);
+    }
+  );
+  it('rejects substituted or closed plaintext transports instead of treating them as an authenticated endpoint', async () => {
+    const target = await fixture({ ssl: false });
+    const { client, config } = await target.connect(undefined, true, false);
+    const response = cleartextAuthOptions(config).authPlugins!.mysql_clear_password!({
+      connection: client,
+      command: 'dummy'
+    });
+    const stream = Reflect.get(client, 'stream') as Socket;
+    Reflect.set(client, 'stream', { readyState: 'open', remotePort: config.port });
+    expect(() => response(Buffer.alloc(0))).toThrowError(
+      expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TRANSPORT_MISMATCH' })
+    );
+    Reflect.set(client, 'stream', stream);
+    client.config.ssl = { rejectUnauthorized: true, verifyIdentity: true };
+    expect(() => response(Buffer.alloc(0))).toThrowError(
+      expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TRANSPORT_MISMATCH' })
+    );
+    client.config.ssl = undefined;
+    stream.destroy();
+    expect(() => response(Buffer.alloc(0))).toThrowError(
+      expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TRANSPORT_MISMATCH' })
+    );
   });
   it('rechecks actual authorization and peer identity on every plugin callback', async () => {
     const target = await fixture();
@@ -374,7 +457,7 @@ describe('verified TLS cleartext opt-in with the real driver and a dummy endpoin
     expect(() => hook({ connection, command: 'dummy' })(Buffer.alloc(0))).toThrowError(
       expect.objectContaining({ code: 'MYSQL_CLEARTEXT_TLS_UNVERIFIED' })
     );
-    expect(() => cleartextAuthOptions({ ...config, ssl: undefined })).toThrow('requires TLS');
+    expect(cleartextAuthOptions({ ...config, ssl: undefined }).ssl).toBeUndefined();
     expect(() => cleartextAuthOptions({ ...config, host: '127.0.0.1' })).toThrow('DNS MYSQL_HOST');
     expect(cleartextAuthOptions({ ...config, enableCleartextPlugin: false })).toMatchObject({
       enableCleartextPlugin: false

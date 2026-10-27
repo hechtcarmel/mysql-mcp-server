@@ -10,6 +10,10 @@ SQL policy blocks DDL, administrative statements, executable comments, file oper
 
 Timeouts and cancellation destroy the connection; they do not guarantee immediate server-side cancellation or rollback of a committed/nontransactional write. Verify outcomes before retrying. Complete transactions must be contained in one call. SQL is never retried automatically.
 
-Use TLS with certificate verification for remote connections and protect environment files. Query logs include validation status, operation type, length, and a hash fingerprint, without SQL values. Driver SQL and raw driver errors are not logged. Limit access to logs as well as client credentials and query results.
+`mysql_clear_password` is enabled by default for compatibility, including without TLS. When requested on a connection without TLS, it sends the literal password unencrypted to the endpoint. Network observers or an impersonating endpoint may obtain the credential. Read-only SQL does not protect passwords, and a VPN alone does not guarantee encryption from the VPN gateway to MySQL. Prefer verified TLS, or set `MYSQL_ENABLE_CLEARTEXT_PLUGIN=false` to refuse this plugin. See [authentication and transport](docs/authentication.md).
+
+Configured TLS requires TLS 1.2+, certificate-chain verification and a certificate-matching DNS host, even when the cleartext plugin is disabled. IP literals and disabled verification are refused in TLS mode. A failed TLS connection never falls back to plaintext. The custom plugin rechecks the selected transport and credential context; it does not enable the driver's unguarded shortcut or reuse a first-factor password after an MFA/changeUser transition.
+
+Protect environment files. Query logs include validation status, operation type, length, and a hash fingerprint, without SQL values. Driver SQL and raw driver errors are not logged. Limit access to logs as well as client credentials and query results.
 
 Report suspected vulnerabilities privately through the repository's [GitHub security advisory page](https://github.com/hechtcarmel/mysql-mcp-server/security/advisories/new), where available. Do not put credentials, production data, or working exploitation details into a public issue. No separate long-term support policy is promised for older package versions; use the latest maintained release and review its upgrade notes.

@@ -41,7 +41,7 @@ describe('existing environment files', () => {
     const result = loadConfig({ MYSQL_ENV_FILE: file }, directory);
     expect(stdout).not.toHaveBeenCalled();
     expect(result).toEqual({
-      enableCleartextPlugin: false,
+      enableCleartextPlugin: true,
       host: 'old-host',
       port: 3307,
       user: 'existing-user',
@@ -52,7 +52,7 @@ describe('existing environment files', () => {
       connectionTimeout: 12000,
       queryTimeout: 45000,
       maxRows: 1000,
-      ssl: { ca: 'test-ca', cert: 'test-cert', key: 'test-key', rejectUnauthorized: true }
+      ssl: { ca: 'test-ca', cert: 'test-cert', key: 'test-key', rejectUnauthorized: true, verifyIdentity: true }
     });
   });
   it('retains process-environment precedence over file values', () => {

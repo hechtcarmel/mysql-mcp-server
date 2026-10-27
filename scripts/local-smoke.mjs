@@ -23,8 +23,8 @@ const categories = new Set([
   'configuration-number-invalid',
   'tls-configuration-incomplete',
   'tls-file-unavailable',
-  'cleartext-auth-requires-verified-tls',
-  'cleartext-auth-requires-dns-host',
+  'tls-verification-required',
+  'tls-dns-host-required',
   'configuration-parse-failed',
   'database-authentication-denied',
   'database-access-denied',
@@ -206,8 +206,8 @@ async function main() {
         serializeMessage,
         env: {
           ...getDefaultEnvironment(),
-          // Explicit noncredential overlays only. Enabling these for a real
-          // trial requires approval; never inherit host/user/password values.
+          // Explicit noncredential overlays only. Preserve the scoped transport
+          // for the real trial; never inherit host/user/password values.
           ...Object.fromEntries(
             [
               'MYSQL_ENABLE_CLEARTEXT_PLUGIN',

@@ -33,7 +33,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
       'required-configuration-missing',
       `Missing required environment variables: ${missing.join(', ')}`
     );
-  const enableCleartextPlugin = boolean(env.MYSQL_ENABLE_CLEARTEXT_PLUGIN, false, 'MYSQL_ENABLE_CLEARTEXT_PLUGIN');
+  const enableCleartextPlugin = boolean(env.MYSQL_ENABLE_CLEARTEXT_PLUGIN, true, 'MYSQL_ENABLE_CLEARTEXT_PLUGIN');
   const sslEnabled = boolean(env.MYSQL_SSL, false, 'MYSQL_SSL');
   const rejectUnauthorized = boolean(env.MYSQL_SSL_REJECT_UNAUTHORIZED, true, 'MYSQL_SSL_REJECT_UNAUTHORIZED');
   if (Boolean(env.MYSQL_SSL_CERT) !== Boolean(env.MYSQL_SSL_KEY)) {
@@ -50,7 +50,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
         ...(env.MYSQL_SSL_CERT && { cert: readFileSync(env.MYSQL_SSL_CERT, 'utf8') }),
         ...(env.MYSQL_SSL_KEY && { key: readFileSync(env.MYSQL_SSL_KEY, 'utf8') }),
         rejectUnauthorized,
-        ...(enableCleartextPlugin && { verifyIdentity: true })
+        verifyIdentity: true
       };
     } catch {
       throw new ConfigurationError(

@@ -17,8 +17,8 @@ const configurationCategories = new Set([
   'configuration-number-invalid',
   'tls-configuration-incomplete',
   'tls-file-unavailable',
-  'cleartext-auth-requires-verified-tls',
-  'cleartext-auth-requires-dns-host'
+  'tls-verification-required',
+  'tls-dns-host-required'
 ]);
 /** Values are deliberately fixed: no error names, code strings or messages pass through. */
 export interface StartupErrorSummary {

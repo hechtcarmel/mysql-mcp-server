@@ -22,7 +22,7 @@ Default-mode queries run inside a MySQL `READ ONLY` transaction. DDL, administra
 
 Release only clean connections. Destroy connections on errors, timeouts and cancellation. Bound pool wait, retained rows, output size and request duration. Do not claim that closing a connection guarantees immediate server-side cancellation or rollback of an already committed write.
 
-Cleartext authentication stays disabled unless MYSQL_ENABLE_CLEARTEXT_PLUGIN=true. Its guarded path requires TLS 1.2+, certificate-chain and DNS endpoint-identity verification before authentication, then validates the actual TLS socket and credential context on every plugin response. Never enable the unguarded driver shortcut, accept IP literals in this mode, disable certificate checks, or forward a first-factor password after a credential-context change.
+MYSQL_ENABLE_CLEARTEXT_PLUGIN defaults true, including when TLS is absent. Document that mysql_clear_password then sends the password unencrypted; support explicit false to disable it. Keep TLS 1.2+, certificate-chain and DNS endpoint-identity verification whenever TLS is configured, regardless of the plugin setting. Never retry failed TLS in plaintext or enable the unguarded driver shortcut. Recheck the selected live transport, endpoint and credential context for each plugin response; never reuse a first-factor password after an MFA/changeUser transition. Plaintext IP hosts remain supported; TLS requires a certificate-matching DNS host.
 
 Stdout is reserved for protocol traffic. Log metadata to stderr without raw SQL, literals, passwords or driver error objects. Treat database content as untrusted data. Keep resource errors distinguishable from successful content.
 

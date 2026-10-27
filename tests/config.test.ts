@@ -4,7 +4,7 @@ import { OperationMode } from '../src/types.js';
 
 const env = { MYSQL_HOST: 'localhost', MYSQL_USER: 'test', MYSQL_PASSWORD: 'secret' };
 describe('configuration compatibility and safe defaults', () => {
-  it('keeps all existing defaults', () => {
+  it('keeps read-only defaults and enables compatible cleartext authentication', () => {
     expect(parseConfig(env)).toEqual({
       ...envToConfig(),
       operationMode: OperationMode.READ_ONLY,
@@ -13,7 +13,7 @@ describe('configuration compatibility and safe defaults', () => {
       connectionTimeout: 10000,
       queryTimeout: 30000,
       maxRows: 1000,
-      enableCleartextPlugin: false
+      enableCleartextPlugin: true
     });
   });
   it('preserves environment names, database selection and case-insensitive boolean values', () => {
@@ -32,25 +32,37 @@ describe('configuration compatibility and safe defaults', () => {
     expect(() => parseConfig({ ...env, MYSQL_PORT: value })).toThrow('MYSQL_PORT');
   });
   it('enables TLS with system trust without requiring custom certificate files', () => {
-    expect(parseConfig({ ...env, MYSQL_SSL: 'true' }).ssl).toEqual({ rejectUnauthorized: true });
+    expect(parseConfig({ ...env, MYSQL_SSL: 'true' }).ssl).toEqual({ rejectUnauthorized: true, verifyIdentity: true });
   });
-  it('enables guarded cleartext auth only with explicit opt-in and verified TLS', () => {
-    expect(parseConfig({ ...env, MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'TRUE', MYSQL_SSL: 'true' })).toMatchObject({
+  it('keeps verified TLS when cleartext authentication is enabled by default', () => {
+    expect(parseConfig({ ...env, MYSQL_SSL: 'true' })).toMatchObject({
       enableCleartextPlugin: true,
       operationMode: OperationMode.READ_ONLY,
       ssl: { rejectUnauthorized: true, verifyIdentity: true }
     });
   });
-  it.each(['1', 'yes', ' true '])('rejects ambiguous cleartext opt-in %s', value => {
+  it('supports plaintext IP hosts and an explicit case-insensitive plugin opt-out', () => {
+    expect(parseConfig({ ...env, MYSQL_HOST: '127.0.0.1' })).toMatchObject({ enableCleartextPlugin: true });
+    expect(parseConfig({ ...env, MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'FALSE' })).toMatchObject({
+      enableCleartextPlugin: false,
+      operationMode: OperationMode.READ_ONLY
+    });
+    expect(parseConfig(env).ssl).toBeUndefined();
+  });
+  it.each(['1', 'yes', ' true '])('rejects ambiguous cleartext configuration %s', value => {
     expect(() => parseConfig({ ...env, MYSQL_ENABLE_CLEARTEXT_PLUGIN: value })).toThrow(
       'MYSQL_ENABLE_CLEARTEXT_PLUGIN'
     );
   });
-  it.each([
-    { MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'true' },
-    { MYSQL_ENABLE_CLEARTEXT_PLUGIN: 'true', MYSQL_SSL: 'true', MYSQL_SSL_REJECT_UNAUTHORIZED: 'false' }
-  ])('rejects cleartext opt-in without verified TLS', settings => {
-    expect(() => parseConfig({ ...env, ...settings })).toThrow('requires TLS');
+  it.each(['true', 'false'])('refuses disabled TLS verification even with plugin setting %s', enabled => {
+    expect(() =>
+      parseConfig({
+        ...env,
+        MYSQL_ENABLE_CLEARTEXT_PLUGIN: enabled,
+        MYSQL_SSL: 'true',
+        MYSQL_SSL_REJECT_UNAUTHORIZED: 'false'
+      })
+    ).toThrow('MYSQL_SSL_REJECT_UNAUTHORIZED=true');
   });
   it.each(['127.0.0.1', '::1', '[::1]', 'host:3306', 'https://host', ' host '])(
     'rejects unsupported endpoint identity %s',

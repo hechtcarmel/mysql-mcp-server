@@ -6,6 +6,8 @@
 
 Give MCP clients access to MySQL queries and schema metadata. **Read-only by default**, with writes available only through `MYSQL_ALLOW_WRITE=true`.
 
+**Authentication default:** `mysql_clear_password` is accepted by default, including when TLS is off. If the endpoint requests this plugin without TLS, your password is sent **unencrypted**. Use verified TLS for remote connections, or set `MYSQL_ENABLE_CLEARTEXT_PLUGIN=false` to disable this plugin. A VPN alone does not establish end-to-end encryption. See [authentication and transport](docs/authentication.md).
+
 - Official MCP TypeScript SDK v2, serving the **2026-07-28** protocol and legacy clients over stdio.
 - One `mysql_query` tool, with Markdown, JSON text, and structured results.
 - Schema resources for databases, tables, columns, indexes, and foreign keys.
@@ -63,7 +65,7 @@ The package name, executable, stdio transport, `mysql_query` arguments, default 
 
 Review these changes when upgrading:
 
-- Endpoints requesting `mysql_clear_password` need explicit `MYSQL_ENABLE_CLEARTEXT_PLUGIN=true`, plus verified TLS and a certificate-matching DNS host. The option defaults to false and never enables SQL writes. See [authentication compatibility](docs/authentication.md) for migration requirements and limits.
+- `MYSQL_ENABLE_CLEARTEXT_PLUGIN` defaults to **true**, accepting `mysql_clear_password` with existing env credentials even without TLS. Without TLS, the literal password is exposed on the connection. Set it to `false` to opt out. Configured TLS requires certificate-chain verification and a certificate-matching DNS host; failed TLS never falls back to plaintext. Authentication does not enable SQL writes. See [authentication compatibility](docs/authentication.md).
 - **Node.js 18 is no longer supported.** The current MCP SDK requires Node.js 20+. This project requires 20.19+ for its supported toolchain.
 - Invalid numeric values such as `3306abc`, and boolean values other than `true` / `false`, now fail startup instead of being silently interpreted. Error messages identify the variable without printing its value.
 - Read-only queries run inside a MySQL `READ ONLY` transaction. File access, executable SQL comments, session-variable assignments, side-effecting built-ins, locking reads, and `EXPLAIN ANALYZE` are rejected in both modes.
@@ -76,26 +78,26 @@ The changes are described in [CHANGELOG.md](CHANGELOG.md), with design details i
 
 ## Configuration
 
-| Variable                           | Default         | Meaning                                                                  |
-| ---------------------------------- | --------------- | ------------------------------------------------------------------------ |
-| `MYSQL_HOST`                       | Required        | Database hostname                                                        |
-| `MYSQL_USER`                       | Required        | MySQL account                                                            |
-| `MYSQL_PASSWORD`                   | Required        | Nonempty account password                                                |
-| `MYSQL_PORT`                       | `3306`          | Port, 1–65535                                                            |
-| `MYSQL_DATABASE`                   | Unset           | Default database for unqualified table names                             |
-| `MYSQL_ENABLE_CLEARTEXT_PLUGIN`    | `false`         | Allow guarded mysql_clear_password authentication over verified TLS only |
-| `MYSQL_ALLOW_WRITE`                | `false`         | Enable DML and complete transactions                                     |
-| `MYSQL_POOL_SIZE`                  | `10`            | Maximum connections, 1–1000                                              |
-| `MYSQL_CONNECTION_TIMEOUT`         | `10000`         | Connection timeout in milliseconds, 1000–60000                           |
-| `MYSQL_QUERY_TIMEOUT`              | `30000`         | Per-call deadline including pool wait and cleanup, 1000–600000 ms        |
-| `MYSQL_MAX_ROWS`                   | `1000`          | Retained rows per call, 1–100000                                         |
-| `MYSQL_ENV_FILE`                   | Optional `.env` | Explicit file path; a missing explicit file fails startup                |
-| `MYSQL_SSL`                        | `false`         | Enable TLS with system certificate authorities                           |
-| `MYSQL_SSL_CA`                     | Unset           | CA file path; also enables TLS                                           |
-| `MYSQL_SSL_CERT` / `MYSQL_SSL_KEY` | Unset           | Client certificate and key paths; configure together                     |
-| `MYSQL_SSL_REJECT_UNAUTHORIZED`    | `true`          | Verify the server certificate                                            |
+| Variable                           | Default         | Meaning                                                                                     |
+| ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
+| `MYSQL_HOST`                       | Required        | Database hostname                                                                           |
+| `MYSQL_USER`                       | Required        | MySQL account                                                                               |
+| `MYSQL_PASSWORD`                   | Required        | Nonempty account password                                                                   |
+| `MYSQL_PORT`                       | `3306`          | Port, 1–65535                                                                               |
+| `MYSQL_DATABASE`                   | Unset           | Default database for unqualified table names                                                |
+| `MYSQL_ENABLE_CLEARTEXT_PLUGIN`    | `true`          | Accept mysql_clear_password, including unencrypted passwords without TLS; false disables it |
+| `MYSQL_ALLOW_WRITE`                | `false`         | Enable DML and complete transactions                                                        |
+| `MYSQL_POOL_SIZE`                  | `10`            | Maximum connections, 1–1000                                                                 |
+| `MYSQL_CONNECTION_TIMEOUT`         | `10000`         | Connection timeout in milliseconds, 1000–60000                                              |
+| `MYSQL_QUERY_TIMEOUT`              | `30000`         | Per-call deadline including pool wait and cleanup, 1000–600000 ms                           |
+| `MYSQL_MAX_ROWS`                   | `1000`          | Retained rows per call, 1–100000                                                            |
+| `MYSQL_ENV_FILE`                   | Optional `.env` | Explicit file path; a missing explicit file fails startup                                   |
+| `MYSQL_SSL`                        | `false`         | Enable TLS with system certificate authorities                                              |
+| `MYSQL_SSL_CA`                     | Unset           | CA file path; also enables TLS                                                              |
+| `MYSQL_SSL_CERT` / `MYSQL_SSL_KEY` | Unset           | Client certificate and key paths; configure together                                        |
+| `MYSQL_SSL_REJECT_UNAUTHORIZED`    | `true`          | Required for TLS; false is refused when TLS is enabled                                      |
 
-Booleans accept `true` and `false`, case-insensitively. Configure TLS for remote database connections. An account with only the required grants remains the primary security boundary; the server does not restrict access to a configured database if that account can access others.
+Booleans accept `true` and `false`, case-insensitively. Configure TLS for remote database connections. TLS requires a certificate-matching DNS `MYSQL_HOST` (IP literals are refused), certificate-chain verification and TLS 1.2+. Certificate paths also enable TLS, even if `MYSQL_SSL=false`; there is no downgrade after a TLS failure. An account with only the required grants remains the primary SQL security boundary; the server does not restrict access to a configured database if that account can access others.
 
 ## Query tool
 
