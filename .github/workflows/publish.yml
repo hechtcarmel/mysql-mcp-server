@@ -3,18 +3,28 @@ name: Publish npm package
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published release tag to publish or recover (vX.Y.Z)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-publish-${{ github.event.release.tag_name }}
+  group: npm-publish-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   publish:
+    # Recovery uses the reviewed workflow on main, never a moved release tag.
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     # Match environment npm in the npm trusted-publisher binding.
     # This declaration adds no approval gate; reviewer/tag rules are optional
     # repository settings that require separate authorization to change.
@@ -23,9 +33,12 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Validate the release tag before checkout
+        run: |
+          node --input-type=module -e 'if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_TAG ?? "")) throw new Error("Invalid release tag")'
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: refs/tags/${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.tag }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -35,21 +48,32 @@ jobs:
       - name: Use a trusted-publishing capable npm CLI
         run: npm install --global npm@11
       - run: node scripts/validate-release.mjs
+      - name: Require an existing published release
+        id: release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease > release-metadata.json
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const release = JSON.parse(readFileSync('release-metadata.json', 'utf8'));
+          assert.equal(release.tagName, process.env.RELEASE_TAG);
+          assert.equal(release.isDraft, false, 'Publish the reviewed GitHub release first');
+          appendFileSync(process.env.GITHUB_OUTPUT, `dist_tag=${release.isPrerelease ? 'next' : 'latest'}\n`);
+          NODE
       - name: Download the reviewed release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: gh release download "$RELEASE_TAG" --pattern '*.tgz' --pattern SHA256SUMS --dir release-assets
       - name: Verify release integrity and version
         working-directory: release-assets
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           sha256sum --check SHA256SUMS
           node ../scripts/verify-release-asset.mjs
       - name: Publish the reviewed tarball with OIDC provenance
         env:
-          NPM_DIST_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
-        run: npm publish release-assets/*.tgz --access public --provenance --tag "$NPM_DIST_TAG"
+          NPM_DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+        # npm treats release-assets/name.tgz as GitHub shorthand without ./.
+        # Publish the exact reviewed bytes; do not rebuild or move the tag.
+        run: npm publish ./release-assets/*.tgz --access public --provenance --tag "$NPM_DIST_TAG"
