@@ -1,123 +1,46 @@
-/**
- * Query executor service
- * Executes validated SQL queries and returns formatted results
- */
+import { MySQLClient, type StatementResult } from './mysql-client.js';
+import { validateQuery } from './query-parser.js';
+import { type QueryResult, OperationMode } from '../types.js';
+import { logQuery } from '../utils/logger.js';
 
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
-import { MySQLClient } from './mysql-client.js';
-import { parseQuery } from './query-parser.js';
-import { QueryResult, OperationMode } from '../types.js';
-import type { RowDataPacket, OkPacket, FieldPacket } from 'mysql2/promise';
-
-/**
- * Query executor class
- */
 export class QueryExecutor {
   constructor(
-    private mysqlClient: MySQLClient,
-    private operationMode: OperationMode
+    private readonly mysqlClient: MySQLClient,
+    private readonly operationMode: OperationMode
   ) {}
 
-  /**
-   * Execute a SQL query with validation and timing
-   */
-  async executeQuery(query: string): Promise<QueryResult> {
-    // Parse and validate query
-    const parseResult = parseQuery(query, this.operationMode);
-
-    if (!parseResult.allowed) {
-      throw new Error(`Query blocked: ${parseResult.reason}\n\n${parseResult.suggestion || ''}`);
-    }
-
-    // Execute query with timing
-    const startTime = Date.now();
+  async executeQuery(query: string, signal?: AbortSignal): Promise<QueryResult> {
+    const start = performance.now();
+    let statements;
     try {
-      const [rows, fields] = await this.mysqlClient.executeQuery(query);
-      const executionTime = Date.now() - startTime;
-
-      // Format result based on query type
-      return this.formatResult(rows, fields, executionTime);
+      statements = validateQuery(query, this.operationMode);
     } catch (error) {
-      const executionTime = Date.now() - startTime;
-      // Re-throw with execution time context
-      if (error instanceof Error) {
-        error.message = `${error.message} (execution time: ${executionTime}ms)`;
-      }
-      throw error;
+      logQuery(query, this.operationMode, false);
+      throw new Error(`Query blocked: ${error instanceof Error ? error.message : 'Invalid SQL'}`, { cause: error });
     }
+    logQuery(query, this.operationMode, true, statements[0]!.queryType);
+    const results = (await this.mysqlClient.executeStatements(statements, signal)).map(result =>
+      this.formatResult(result, Math.round(performance.now() - start))
+    );
+    const first = results[0]!;
+    if (results.length > 1) return { ...first, results, truncated: results.some(result => result.truncated) };
+    return first;
   }
 
-  /**
-   * Format query result based on type
-   */
-  private formatResult(
-    rows: RowDataPacket[] | RowDataPacket[][] | OkPacket | OkPacket[],
-    fields: FieldPacket[],
-    executionTime: number
-  ): QueryResult {
-    // Handle SELECT queries (returns rows)
-    if (Array.isArray(rows) && rows.length >= 0 && !('affectedRows' in rows)) {
-      const rowData = rows as RowDataPacket[];
-
-      // Extract column information
-      const columns = fields.map(field => ({
-        name: field.name,
-        type: this.getFieldTypeName(field.type || 0)
-      }));
-
-      // Convert rows to array format
-      const rowArray = rowData.map(row => {
-        return fields.map(field => row[field.name]);
-      });
-
+  private formatResult(result: StatementResult, executionTime: number): QueryResult {
+    if (Array.isArray(result.rows))
       return {
-        columns,
-        rows: rowArray,
-        rowCount: rowData.length,
+        columns: result.fields.map(field => ({ name: field.name, type: this.getFieldTypeName(field.columnType ?? 0) })),
+        rows: result.rows,
+        rowCount: result.rows.length,
         executionTime,
-        truncated: false
+        truncated: result.truncated
       };
-    }
-
-    // Handle DML queries (INSERT, UPDATE, DELETE, REPLACE)
-    if ('affectedRows' in rows) {
-      const okPacket = rows;
-      return {
-        affectedRows: okPacket.affectedRows,
-        insertId: okPacket.insertId || 0,
-        changedRows: okPacket.changedRows || 0,
-        rowCount: okPacket.affectedRows,
-        executionTime,
-        truncated: false
-      };
-    }
-
-    // Handle other query types (SHOW, DESCRIBE, etc.)
-    if (Array.isArray(rows) && rows.length > 0) {
-      const rowData = rows as RowDataPacket[];
-
-      const columns = fields.map(field => ({
-        name: field.name,
-        type: this.getFieldTypeName(field.type || 0)
-      }));
-
-      const rowArray = rowData.map(row => {
-        return fields.map(field => row[field.name]);
-      });
-
-      return {
-        columns,
-        rows: rowArray,
-        rowCount: rowData.length,
-        executionTime,
-        truncated: false
-      };
-    }
-
-    // Default empty result
     return {
-      rowCount: 0,
+      affectedRows: result.rows.affectedRows,
+      insertId: result.rows.insertId || 0,
+      changedRows: result.rows.changedRows || 0,
+      rowCount: result.rows.affectedRows,
       executionTime,
       truncated: false
     };

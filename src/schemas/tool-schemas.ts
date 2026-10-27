@@ -1,43 +1,33 @@
-/**
- * Zod schemas for MCP tool input validation
- */
-
 import { z } from 'zod';
 import { MAX_QUERY_LENGTH } from '../constants.js';
 
-/**
- * Response format enum
- */
-export enum ResponseFormat {
-  MARKDOWN = 'markdown',
-  JSON = 'json'
-}
-
-/**
- * Input schema for mysql_query tool
- */
 export const QueryInputSchema = z
   .object({
     query: z
       .string()
-      .min(1, 'Query cannot be empty')
-      .max(MAX_QUERY_LENGTH, `Query cannot exceed ${MAX_QUERY_LENGTH} characters`)
+      .min(1)
+      .max(MAX_QUERY_LENGTH)
       .describe(
-        'SQL query to execute. Must use fully qualified table names (database.table format). ' +
-          'Examples: "SELECT * FROM mydb.users LIMIT 10", "SHOW TABLES FROM mydb", "DESCRIBE mydb.users"'
+        'SQL query. Prefer fully qualified database.table names; otherwise MYSQL_DATABASE is used. Use LIMIT for exploratory queries.'
       ),
-
     response_format: z
       .enum(['markdown', 'json'])
       .default('markdown')
-      .describe(
-        'Output format: "markdown" for human-readable formatted output with tables (default), ' +
-          'or "json" for machine-readable structured data with columns, rows, and metadata'
-      )
+      .describe('Human-readable Markdown (default) or machine-readable JSON.')
   })
   .strict();
-
-/**
- * Inferred type for query input
- */
 export type QueryInput = z.infer<typeof QueryInputSchema>;
+
+export const QueryOutputSchema = z.object({
+  columns: z.array(z.object({ name: z.string(), type: z.string() })),
+  rows: z.array(z.array(z.json())),
+  metadata: z.object({
+    rowCount: z.number(),
+    executionTime: z.number(),
+    truncated: z.boolean(),
+    affectedRows: z.number().optional(),
+    insertId: z.union([z.number(), z.string()]).optional(),
+    changedRows: z.number().optional()
+  }),
+  results: z.array(z.json()).optional()
+});

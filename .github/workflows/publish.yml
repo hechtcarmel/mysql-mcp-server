@@ -1,0 +1,54 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Maintainers must configure this environment's required reviewers and the
+    # matching npm trusted publisher before publishing any GitHub release.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use a trusted-publishing capable npm CLI
+        run: npm install --global npm@11
+      - run: node scripts/validate-release.mjs
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+      - name: Download the reviewed release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release download "$RELEASE_TAG" --pattern '*.tgz' --pattern SHA256SUMS --dir release-assets
+      - name: Verify release integrity and version
+        working-directory: release-assets
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          sha256sum --check SHA256SUMS
+          node ../scripts/verify-release-asset.mjs
+      - name: Publish the reviewed tarball with OIDC provenance
+        env:
+          NPM_DIST_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
+        run: npm publish release-assets/*.tgz --access public --provenance --tag "$NPM_DIST_TAG"

@@ -1,164 +1,124 @@
-/**
- * Response formatters for query results and resources
- */
-
-import { QueryResult, QueryType, DatabaseInfo, TableInfo, TableSchema } from '../types.js';
+import { type QueryResult, QueryType, type DatabaseInfo, type TableInfo, type TableSchema } from '../types.js';
 import { CHARACTER_LIMIT } from '../constants.js';
+import { QueryOutputSchema } from '../schemas/tool-schemas.js';
+import type { z } from 'zod';
 
-/**
- * Format query result as JSON
- */
-export function formatAsJSON(result: QueryResult): string {
-  const output = {
-    columns: result.columns || [],
-    rows: result.rows || [],
+export type StructuredResult = z.infer<typeof QueryOutputSchema>;
+
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+function jsonValue(value: unknown): JsonValue {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'boolean' || typeof value === 'string') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Buffer.isBuffer(value)) return value.toString('base64');
+  if (Array.isArray(value)) return value.map(jsonValue);
+  if (typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonValue(item)]));
+  return typeof value === 'symbol' ? (value.description ?? '') : '[unsupported value]';
+}
+
+export function toStructuredResult(result: QueryResult): StructuredResult {
+  return {
+    columns: result.columns ?? [],
+    rows: (result.rows ?? []).map(row => row.map(jsonValue)),
     metadata: {
       rowCount: result.rowCount,
       executionTime: result.executionTime,
-      truncated: result.truncated || false,
+      truncated: result.truncated ?? false,
       ...(result.affectedRows !== undefined && { affectedRows: result.affectedRows }),
       ...(result.insertId !== undefined && { insertId: result.insertId }),
       ...(result.changedRows !== undefined && { changedRows: result.changedRows })
-    }
+    },
+    ...(result.results && { results: result.results.map(item => jsonValue(toStructuredResult(item))) })
   };
-
-  return JSON.stringify(output, null, 2);
 }
 
-/**
- * Format query result as Markdown
- */
-export function formatAsMarkdown(result: QueryResult, _queryType: QueryType): string {
-  let output = '';
+export function formatAsJSON(result: QueryResult): string {
+  return JSON.stringify(toStructuredResult(result), null, 2);
+}
 
-  // For SELECT-like queries with result sets
-  if (result.columns && result.rows && result.rows.length > 0) {
-    output += formatMarkdownTable(result.columns, result.rows);
-    output += '\n\n';
-    output += `**Query completed:** ${result.rowCount} row(s) returned in ${result.executionTime}ms\n`;
-  }
-  // For SELECT with no results
-  else if (result.columns && result.rows && result.rows.length === 0) {
-    output += '**No rows returned**\n\n';
-    output += `Query completed in ${result.executionTime}ms\n`;
-  }
-  // For DML operations (INSERT, UPDATE, DELETE)
-  else if (result.affectedRows !== undefined) {
-    output += formatDMLResult(result);
-  }
-  // For other operations
+function escapeCell(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? 'NULL'
+      : typeof value === 'string'
+        ? value
+        : JSON.stringify(jsonValue(value));
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\\/g, '&#92;')
+    .replace(/\|/g, '&#124;')
+    .replace(/`/g, '&#96;')
+    .replace(/\r?\n/g, '<br>');
+}
+
+function markdown(result: StructuredResult): string {
+  if (result.results)
+    return result.results
+      .map((item, i) => `### Statement ${i + 1}\n\n${markdown(QueryOutputSchema.parse(item))}`)
+      .join('\n\n');
+  let output: string;
+  if (result.metadata.affectedRows !== undefined) {
+    output = `**Operation completed successfully**\n\n- Rows affected: ${result.metadata.affectedRows}\n- Insert ID: ${result.metadata.insertId ?? 0}\n`;
+  } else if (!result.rows.length) output = '**No rows returned**\n';
   else {
-    output += `**Query completed** in ${result.executionTime}ms\n`;
-    if (result.rowCount > 0) {
-      output += `${result.rowCount} row(s) affected\n`;
+    output = '| ' + result.columns.map(column => escapeCell(column.name)).join(' | ') + ' |\n';
+    output += '| ' + result.columns.map(() => '---').join(' | ') + ' |\n';
+    output += result.rows.map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\n');
+    output += `\n\n**Query completed:** ${result.rows.length} row(s) returned in ${result.metadata.executionTime}ms\n`;
+  }
+  if (result.metadata.truncated) output += '\n**Response truncated.** Use LIMIT, filters, or fewer columns.\n';
+  return output;
+}
+
+export function formatAsMarkdown(result: QueryResult, _queryType: QueryType): string {
+  return markdown(toStructuredResult(result));
+}
+
+/** Trim whole rows and retain a valid output object in both legacy text formats. */
+export function formatQueryResponse(
+  result: QueryResult,
+  format: 'markdown' | 'json'
+): { text: string; structuredContent: StructuredResult } {
+  const output = toStructuredResult(result);
+  const render = (): string => (format === 'json' ? JSON.stringify(output, null, 2) : markdown(output));
+  // The structured payload has its own budget so Markdown escaping cannot hide oversized data.
+  while (render().length > CHARACTER_LIMIT || JSON.stringify(output).length > CHARACTER_LIMIT) {
+    output.metadata.truncated = true;
+    const items = output.results ? output.results.map(item => QueryOutputSchema.parse(item)) : [output];
+    let changed = false;
+    for (const item of items) {
+      item.metadata.truncated = true;
+      if (item.rows.length) {
+        item.rows.length = Math.floor(item.rows.length / 2);
+        item.metadata.rowCount = item.rows.length;
+        changed = true;
+      } else if (item.columns.length) {
+        item.columns.length = Math.floor(item.columns.length / 2);
+        changed = true;
+      }
     }
+    if (output.results) {
+      output.results = items.map(jsonValue);
+      const first = items[0]!;
+      output.rows = first.rows;
+      output.columns = first.columns;
+      output.metadata.rowCount = first.metadata.rowCount;
+    }
+    if (!changed) throw new Error('Query response metadata exceeds the response limit');
   }
-
-  return output;
+  return { text: render(), structuredContent: output };
 }
 
-/**
- * Format result set as Markdown table
- */
-function formatMarkdownTable(columns: Array<{ name: string; type: string }>, rows: unknown[][]): string {
-  if (columns.length === 0 || rows.length === 0) {
-    return '*(Empty result set)*';
-  }
-
-  let table = '';
-
-  // Header row
-  table += '| ' + columns.map(col => col.name).join(' | ') + ' |\n';
-
-  // Separator row
-  table += '| ' + columns.map(() => '---').join(' | ') + ' |\n';
-
-  // Data rows
-  for (const row of rows) {
-    const formattedRow = row.map(cell => formatCell(cell));
-    table += '| ' + formattedRow.join(' | ') + ' |\n';
-  }
-
-  return table;
-}
-
-/**
- * Format a cell value for display
- */
-function formatCell(value: unknown): string {
-  if (value === null) {
-    return '*NULL*';
-  }
-  if (value === undefined) {
-    return '*undefined*';
-  }
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-/**
- * Format DML operation result
- */
-function formatDMLResult(result: QueryResult): string {
-  let output = '**Operation completed successfully**\n\n';
-
-  if (result.affectedRows !== undefined) {
-    output += `- Rows affected: ${result.affectedRows}\n`;
-  }
-  if (result.insertId !== undefined && result.insertId > 0) {
-    output += `- Insert ID: ${result.insertId}\n`;
-  }
-  if (result.changedRows !== undefined) {
-    output += `- Rows changed: ${result.changedRows}\n`;
-  }
-
-  output += `- Execution time: ${result.executionTime}ms\n`;
-
-  return output;
-}
-
-/**
- * Apply character limit truncation to response
- */
-export function applyCharacterLimit(response: string, includeWarning: boolean = true): string {
-  if (response.length <= CHARACTER_LIMIT) {
-    return response;
-  }
-
-  const truncated = response.substring(0, CHARACTER_LIMIT);
-
-  if (!includeWarning) {
-    return truncated;
-  }
-
-  const warning =
-    `\n\n---\n**⚠️ Response Truncated**\n\n` +
-    `The response was truncated at ${CHARACTER_LIMIT} characters. ` +
-    `Original length was ${response.length} characters.\n\n` +
-    `**Suggestions to reduce response size:**\n` +
-    `- Add a LIMIT clause to restrict the number of rows (e.g., LIMIT 100)\n` +
-    `- Use WHERE clauses to filter data more specifically\n` +
-    `- Select only necessary columns instead of using SELECT *\n` +
-    `- Consider breaking your query into smaller, more focused queries\n`;
-
-  // Make sure we have room for the warning
-  const maxContentLength = CHARACTER_LIMIT - warning.length;
-  if (maxContentLength > 0 && truncated.length > maxContentLength) {
-    return response.substring(0, maxContentLength) + warning;
-  }
-
-  return truncated + warning;
+export function applyCharacterLimit(response: string, includeWarning = true): string {
+  if (response.length <= CHARACTER_LIMIT) return response;
+  const warning = includeWarning ? '\n\n**Response truncated.** Use a narrower resource or query.\n' : '';
+  return response.slice(0, CHARACTER_LIMIT - warning.length) + warning;
 }
 
 /**
@@ -176,7 +136,7 @@ export function formatDatabaseListAsMarkdown(databases: DatabaseInfo[]): string 
   output += '| --- | --- | --- | --- |\n';
 
   for (const db of databases) {
-    output += `| ${db.name} | ${db.defaultCharacterSet} | ${db.defaultCollation} | ${db.tableCount} |\n`;
+    output += `| ${escapeCell(db.name)} | ${escapeCell(db.defaultCharacterSet)} | ${escapeCell(db.defaultCollation)} | ${escapeCell(db.tableCount)} |\n`;
   }
 
   return output;
@@ -205,7 +165,7 @@ export function formatDatabaseAsMarkdown(
     const dataSize = formatBytes(table.dataLength);
     const indexSize = formatBytes(table.indexLength);
     const comment = table.comment || '-';
-    output += `| ${table.name} | ${table.type} | ${table.engine || '-'} | ${table.rowCount} | ${dataSize} | ${indexSize} | ${comment} |\n`;
+    output += `| ${escapeCell(table.name)} | ${escapeCell(table.type)} | ${escapeCell(table.engine || '-')} | ${escapeCell(table.rowCount)} | ${escapeCell(dataSize)} | ${escapeCell(indexSize)} | ${escapeCell(comment)} |\n`;
   }
 
   return output;
@@ -249,7 +209,7 @@ export function formatTableSchemaAsMarkdown(schema: TableSchema): string {
     const defaultVal = col.defaultValue !== null ? col.defaultValue : '-';
     const extra = col.extra || '-';
     const comment = col.comment || '-';
-    output += `| ${col.ordinalPosition} | ${col.name} | ${col.columnType} | ${nullable} | ${col.columnKey || '-'} | ${defaultVal} | ${extra} | ${comment} |\n`;
+    output += `| ${escapeCell(col.ordinalPosition)} | ${escapeCell(col.name)} | ${escapeCell(col.columnType)} | ${escapeCell(nullable)} | ${escapeCell(col.columnKey || '-')} | ${escapeCell(defaultVal)} | ${escapeCell(extra)} | ${escapeCell(comment)} |\n`;
   }
   output += '\n';
 
@@ -263,7 +223,7 @@ export function formatTableSchemaAsMarkdown(schema: TableSchema): string {
       const unique = idx.unique ? 'YES' : 'NO';
       const columns = idx.columns.join(', ');
       const comment = idx.comment || '-';
-      output += `| ${idx.name} | ${unique} | ${columns} | ${idx.indexType} | ${comment} |\n`;
+      output += `| ${escapeCell(idx.name)} | ${escapeCell(unique)} | ${escapeCell(columns)} | ${escapeCell(idx.indexType)} | ${escapeCell(comment)} |\n`;
     }
     output += '\n';
   }
@@ -277,7 +237,7 @@ export function formatTableSchemaAsMarkdown(schema: TableSchema): string {
     for (const fk of schema.foreignKeys) {
       const columns = fk.columns.join(', ');
       const refs = `${fk.referencedTable}(${fk.referencedColumns.join(', ')})`;
-      output += `| ${fk.name} | ${columns} | ${refs} | ${fk.onUpdate} | ${fk.onDelete} |\n`;
+      output += `| ${escapeCell(fk.name)} | ${escapeCell(columns)} | ${escapeCell(refs)} | ${escapeCell(fk.onUpdate)} | ${escapeCell(fk.onDelete)} |\n`;
     }
     output += '\n';
   }
