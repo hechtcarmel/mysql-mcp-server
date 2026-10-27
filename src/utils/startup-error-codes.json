@@ -37,6 +37,7 @@
   "ER_HOST_NOT_PRIVILEGED": "database-host-access-denied",
   "EPROTO": "tls-or-network-protocol-failed",
   "ERR_SSL_WRONG_VERSION_NUMBER": "tls-protocol-mismatch",
+  "ERR_SSL_PACKET_LENGTH_TOO_LONG": "tls-protocol-mismatch",
   "ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION": "tls-protocol-version-rejected",
   "ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE": "tls-peer-rejected-handshake",
   "ERR_TLS_INVALID_PROTOCOL_VERSION": "tls-configuration-invalid",

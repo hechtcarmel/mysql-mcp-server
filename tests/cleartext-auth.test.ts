@@ -453,9 +453,12 @@ describe('credential-free strict MySQL STARTTLS probe', () => {
     expect(result).toMatchObject({
       ok: false,
       authenticationSent: false,
-      category: 'tls-protocol-mismatch',
-      error: { code: 'ERR_SSL_WRONG_VERSION_NUMBER' }
+      category: 'tls-protocol-mismatch'
     });
+    // Node's bundled OpenSSL versions report different codes for these same
+    // non-TLS bytes. Preserve the original evidence instead of normalizing it.
+    expect(['ERR_SSL_WRONG_VERSION_NUMBER', 'ERR_SSL_PACKET_LENGTH_TOO_LONG']).toContain(result.error?.code);
+    expect(result.error?.tls?.source).toBe('error-code');
     expect(target.authentication).toHaveLength(0);
   });
   it('bounds greeting waits and rejects malformed greetings without authentication', async () => {

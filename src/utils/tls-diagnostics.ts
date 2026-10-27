@@ -25,6 +25,7 @@ const messages: Record<string, string> = {
 };
 const reasons: Record<string, string> = {
   'wrong version number': 'ERR_SSL_WRONG_VERSION_NUMBER',
+  'packet length too long': 'ERR_SSL_PACKET_LENGTH_TOO_LONG',
   'unknown protocol': 'ERR_SSL_UNKNOWN_PROTOCOL',
   'unsupported protocol': 'ERR_SSL_UNSUPPORTED_PROTOCOL',
   'tlsv1 alert protocol version': 'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',

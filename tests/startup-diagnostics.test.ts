@@ -16,6 +16,7 @@ describe('secret-safe startup evidence', () => {
     ['CERT_HAS_EXPIRED', 'tls-certificate-expired'],
     ['MYSQL_REQUEST_TIMEOUT', 'database-connect-timeout'],
     ['HANDSHAKE_SSL_ERROR', 'tls-handshake-failed'],
+    ['ERR_SSL_PACKET_LENGTH_TOO_LONG', 'tls-protocol-mismatch'],
     ['HANDSHAKE_NO_SSL_SUPPORT', 'tls-not-supported-by-server'],
     ['AUTH_SWITCH_PLUGIN_ERROR', 'database-authentication-plugin-failed'],
     ['MYSQL_CLEAR_PASSWORD_NOT_ENABLED', 'database-cleartext-authentication-disabled'],
@@ -142,6 +143,18 @@ describe('secret-safe startup evidence', () => {
       startupErrorDetails(Object.assign(new Error('self-signed certificate'), { code: 'dummy-secret' })).tls
     ).toBeUndefined();
     expect(JSON.stringify(startupErrorDetails(unknown))).not.toContain('dummy-secret');
+  });
+  it('preserves the alternate OpenSSL non-TLS response evidence after mysql2 overwrites its code', () => {
+    const error = Object.assign(new Error('dummy-secret'), {
+      code: 'HANDSHAKE_SSL_ERROR',
+      reason: 'packet length too long'
+    });
+    expect(startupErrorDetails(error).tls).toEqual({
+      code: 'ERR_SSL_PACKET_LENGTH_TOO_LONG',
+      source: 'openssl-reason'
+    });
+    expect(startupCategory('database-connect', error)).toBe('tls-protocol-mismatch');
+    expect(JSON.stringify(startupErrorDetails(error))).not.toContain('dummy-secret');
   });
   it('gives invalid existing configuration a stable category without its value', () => {
     let error: unknown;
