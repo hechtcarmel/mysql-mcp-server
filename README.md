@@ -1,235 +1,24 @@
 # MySQL MCP Server
 
-A Model Context Protocol (MCP) server that provides LLMs with flexible, safe access to MySQL databases. This server enables AI agents to explore database schemas via MCP resources, execute raw SQL queries with intelligent safety parsing, and optionally perform write operations when explicitly enabled.
+[![CI](https://github.com/hechtcarmel/mysql-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/hechtcarmel/mysql-mcp-server/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@hechtcarmel/mysql-mcp-server)](https://www.npmjs.com/package/@hechtcarmel/mysql-mcp-server)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![npm version](https://img.shields.io/npm/v/@hechtcarmel/mysql-mcp-server.svg)](https://www.npmjs.com/package/@hechtcarmel/mysql-mcp-server)
+Give MCP clients access to MySQL queries and schema metadata. **Read-only by default**, with writes available only through `MYSQL_ALLOW_WRITE=true`.
 
-## Table of Contents
+**Authentication default:** `mysql_clear_password` is accepted by default, including when TLS is off. If the endpoint requests this plugin without TLS, your password is sent **unencrypted**. Use verified TLS for remote connections, or set `MYSQL_ENABLE_CLEARTEXT_PLUGIN=false` to disable this plugin. A VPN alone does not establish end-to-end encryption. See [authentication and transport](docs/authentication.md).
 
-- [Quick Start](#quick-start)
-  - [Claude Code](#for-claude-code)
-  - [Cursor](#for-cursor)
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage with MCP Clients](#usage-with-mcp-clients)
-- [Available Tools](#available-tools)
-- [MCP Resources](#mcp-resources)
-- [Operation Modes](#operation-modes)
-- [Security Considerations](#security-considerations)
-- [Troubleshooting](#troubleshooting)
-- [Performance Tips](#performance-tips)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
+- Official MCP TypeScript SDK v2, serving the **2026-07-28** protocol and legacy clients over stdio.
+- One `mysql_query` tool, with Markdown, JSON text, and structured results.
+- Schema resources for databases, tables, columns, indexes, and foreign keys.
+- Database-enforced read-only transactions, validated SQL batches, bounded results, and request cancellation.
+- MySQL 8.0 / 8.4 and MariaDB 11.4 integration coverage in CI.
 
-## Quick Start
+## Quick start
 
-### Step 1: Create Your .env File
+Requires **Node.js 20.19+**; Node.js 24 LTS is recommended. You also need access to a MySQL-compatible server. The MCP server uses stdio and does not open an HTTP port.
 
-Create a `.env` file with your MySQL credentials. You can place it anywhere, for example:
-- `~/.config/mysql-mcp/.env` (recommended)
-- Or in your project directory
-
-```bash
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=your_username
-MYSQL_PASSWORD=your_password
-MYSQL_ALLOW_WRITE=false
-```
-
-### Step 2: Configure Your MCP Client
-
-#### For Claude Code
-
-Run this command in Claude Code:
-
-```bash
-claude mcp add mysql-mcp --scope user --env MYSQL_ENV_FILE=/absolute/path/to/.env -- npx -y @hechtcarmel/mysql-mcp-server
-```
-
-Replace `/absolute/path/to/.env` with the actual path to your .env file.
-
-#### For Cursor
-
-Configure `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "mysql-mcp": {
-      "command": "npx",
-      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
-    }
-  }
-}
-```
-
-Replace `/absolute/path/to/.env` with the actual path to your .env file, then restart Cursor.
-
-## Features
-
-- **🔒 Secure by Default**: Read-only mode prevents accidental data modification
-- **🔍 Schema Discovery**: MCP resources for efficient database and table exploration
-- **💪 Full SQL Support**: Execute any SQL query with full expressiveness
-- **🛡️ Intelligent Query Parsing**: Blocks dangerous operations through SQL analysis
-- **📊 Multiple Response Formats**: JSON or Markdown output for flexibility
-- **🔐 SSL/TLS Support**: Secure database connections with certificate validation
-- **⚡ Connection Pooling**: Efficient connection management with configurable limits
-- **🎯 Fully Qualified Names**: Explicit `database.table` format for multi-database support
-
-## Installation
-
-### Prerequisites
-
-- Node.js 18 or higher
-- MySQL 5.7 or higher (or MariaDB 10.3+)
-- Claude Desktop or another MCP client
-
-### Install via npm (Recommended)
-
-```bash
-# Global installation
-npm install -g @hechtcarmel/mysql-mcp-server
-
-# Or with pnpm
-pnpm add -g @hechtcarmel/mysql-mcp-server
-```
-
-### Install from Source (Development)
-
-For development or contributing:
-
-```bash
-# Clone the repository
-git clone https://github.com/hechtcarmel/mysql-mcp-server.git
-cd mysql-mcp-server
-
-# Install dependencies
-pnpm install
-
-# Build the project
-pnpm run build
-
-# (Optional) Create a .env file for local testing
-cp .env.example .env
-# Edit .env with your MySQL credentials
-```
-
-## Configuration
-
-### Required Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MYSQL_HOST` | Database host address | **(required)** |
-| `MYSQL_USER` | Database username | **(required)** |
-| `MYSQL_PASSWORD` | Database password | **(required)** |
-
-### Optional Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MYSQL_PORT` | Database port | `3306` |
-| `MYSQL_ALLOW_WRITE` | Enable write operations (`true` or `false`) | `false` |
-| `MYSQL_POOL_SIZE` | Maximum connections in pool | `10` |
-| `MYSQL_CONNECTION_TIMEOUT` | Connection timeout (ms) | `10000` |
-| `MYSQL_QUERY_TIMEOUT` | Query execution timeout (ms) | `30000` |
-| `MYSQL_DATABASE` | Default database (optional) | - |
-| `MYSQL_ENV_FILE` | Path to custom .env file | - |
-
-### SSL/TLS Configuration (Optional)
-
-| Variable | Description |
-|----------|-------------|
-| `MYSQL_SSL_CA` | Path to SSL CA certificate |
-| `MYSQL_SSL_CERT` | Path to SSL client certificate |
-| `MYSQL_SSL_KEY` | Path to SSL client key |
-| `MYSQL_SSL_REJECT_UNAUTHORIZED` | Reject unauthorized certificates (`true` or `false`, default: `true`) |
-
-## Usage with MCP Clients
-
-This server works with any MCP-compatible client. Below are configuration examples for various clients.
-
-### Claude Code
-
-Open MCP settings via **Command Palette → MCP: Edit User MCP Settings** and add:
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "npx",
-      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
-    }
-  }
-}
-```
-
-Create your `.env` file:
-
-```bash
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=your_username
-MYSQL_PASSWORD=your_password
-MYSQL_ALLOW_WRITE=false
-```
-
-### Cursor
-
-Open MCP settings via **Settings → MCP Servers → Add Server** or edit directly:
-
-**Config file location:**
-- **macOS/Linux**: `~/.cursor/mcp.json`
-- **Windows**: `%APPDATA%\Cursor\User\mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "npx",
-      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-**Config file location:**
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "npx",
-      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
-    }
-  }
-}
-```
-
-### Alternative: Using Inline Environment Variables
-
-If you prefer not to use a `.env` file, you can specify credentials directly:
+Add this entry to a client that accepts `mcpServers` configuration, such as Claude Desktop or Cursor:
 
 ```json
 {
@@ -240,366 +29,189 @@ If you prefer not to use a `.env` file, you can specify credentials directly:
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
-        "MYSQL_USER": "your_username",
-        "MYSQL_PASSWORD": "your_password",
-        "MYSQL_ALLOW_WRITE": "false"
+        "MYSQL_USER": "mcp_reader",
+        "MYSQL_PASSWORD": "replace-with-your-password"
       }
     }
   }
 }
 ```
 
-**Note:** Using a `.env` file is recommended for better security.
+For clients with a different configuration format, use the same command, arguments, and environment variables. Restart the client after changing its configuration.
 
-### Global Installation (Alternative)
-
-If you prefer to install globally instead of using npx:
-
-```bash
-npm install -g @hechtcarmel/mysql-mcp-server
-```
-
-Then use `mysql-mcp-server` as the command:
+Alternatively, put the variables in a protected environment file and set `MYSQL_ENV_FILE` to its absolute path:
 
 ```json
 {
   "mcpServers": {
     "mysql": {
-      "command": "mysql-mcp-server",
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
+      "command": "npx",
+      "args": ["-y", "@hechtcarmel/mysql-mcp-server"],
+      "env": { "MYSQL_ENV_FILE": "/absolute/path/to/mysql.env" }
     }
   }
 }
 ```
 
-### Development - Install from Source
+See [.env.example](.env.example) for a complete template. Existing environment variables take precedence over file values. Without `MYSQL_ENV_FILE`, the server optionally reads `.env` from its working directory. Neither method encrypts credentials; protect the file and keep it out of version control.
 
-If installed from source instead of npm:
+You can also install globally with `npm install -g @hechtcarmel/mysql-mcp-server` and use `mysql-mcp-server` as the command, or run a source build with `node /absolute/path/to/mysql-mcp-server/dist/index.js`.
+
+## Upgrading existing installations
+
+Version 2.0.0 is a major release because it raises the minimum Node.js runtime and intentionally tightens SQL validation, configuration parsing and error signaling. Existing environment files remain supported and read-only remains the default.
+
+The package name, executable, stdio transport, `mysql_query` arguments, default Markdown response, JSON envelope, environment variable names, and resource URI patterns remain available. Existing client configuration continues to work on a supported Node.js runtime.
+
+Review these changes when upgrading:
+
+- `MYSQL_ENABLE_CLEARTEXT_PLUGIN` defaults to **true**, accepting `mysql_clear_password` with existing env credentials even without TLS. Without TLS, the literal password is exposed on the connection. Set it to `false` to opt out. Configured TLS requires certificate-chain verification and a certificate-matching DNS host; failed TLS never falls back to plaintext. Authentication does not enable SQL writes. See [authentication compatibility](docs/authentication.md).
+- **Node.js 18 is no longer supported.** The current MCP SDK requires Node.js 20+. This project requires 20.19+ for its supported toolchain.
+- Invalid numeric values such as `3306abc`, and boolean values other than `true` / `false`, now fail startup instead of being silently interpreted. Error messages identify the variable without printing its value.
+- Read-only queries run inside a MySQL `READ ONLY` transaction. File access, executable SQL comments, session-variable assignments, side-effecting built-ins, locking reads, and `EXPLAIN ANALYZE` are rejected in both modes.
+- Transactions must start and finish **in one tool call**. The old implementation returned pooled connections between calls, so separate `BEGIN` and `COMMIT` calls could not reliably share a transaction.
+- Results retain at most 1,000 rows per call by default. Set `MYSQL_MAX_ROWS` to change that limit. JSON remains valid when truncated; `metadata.truncated` reports truncation and `rowCount` counts returned rows.
+- Tool failures set `isError: true`. Resource failures use MCP protocol errors instead of successful responses containing error text.
+- Query logs contain fingerprints and validation metadata, rather than SQL text. Driver SQL, query values, and passwords are excluded from logs.
+
+The changes are described in [CHANGELOG.md](CHANGELOG.md), with design details in [docs/architecture.md](docs/architecture.md).
+
+## Configuration
+
+| Variable                           | Default         | Meaning                                                                                     |
+| ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
+| `MYSQL_HOST`                       | Required        | Database hostname                                                                           |
+| `MYSQL_USER`                       | Required        | MySQL account                                                                               |
+| `MYSQL_PASSWORD`                   | Required        | Nonempty account password                                                                   |
+| `MYSQL_PORT`                       | `3306`          | Port, 1–65535                                                                               |
+| `MYSQL_DATABASE`                   | Unset           | Default database for unqualified table names                                                |
+| `MYSQL_ENABLE_CLEARTEXT_PLUGIN`    | `true`          | Accept mysql_clear_password, including unencrypted passwords without TLS; false disables it |
+| `MYSQL_ALLOW_WRITE`                | `false`         | Enable DML and complete transactions                                                        |
+| `MYSQL_POOL_SIZE`                  | `10`            | Maximum connections, 1–1000                                                                 |
+| `MYSQL_CONNECTION_TIMEOUT`         | `10000`         | Connection timeout in milliseconds, 1000–60000                                              |
+| `MYSQL_QUERY_TIMEOUT`              | `30000`         | Per-call deadline including pool wait and cleanup, 1000–600000 ms                           |
+| `MYSQL_MAX_ROWS`                   | `1000`          | Retained rows per call, 1–100000                                                            |
+| `MYSQL_ENV_FILE`                   | Optional `.env` | Explicit file path; a missing explicit file fails startup                                   |
+| `MYSQL_SSL`                        | `false`         | Enable TLS with system certificate authorities                                              |
+| `MYSQL_SSL_CA`                     | Unset           | CA file path; also enables TLS                                                              |
+| `MYSQL_SSL_CERT` / `MYSQL_SSL_KEY` | Unset           | Client certificate and key paths; configure together                                        |
+| `MYSQL_SSL_REJECT_UNAUTHORIZED`    | `true`          | Required for TLS; false is refused when TLS is enabled                                      |
+
+Booleans accept `true` and `false`, case-insensitively. Configure TLS for remote database connections. TLS requires a certificate-matching DNS `MYSQL_HOST` (IP literals are refused), certificate-chain verification and TLS 1.2+. Certificate paths also enable TLS, even if `MYSQL_SSL=false`; there is no downgrade after a TLS failure. An account with only the required grants remains the primary SQL security boundary; the server does not restrict access to a configured database if that account can access others.
+
+## Query tool
+
+`mysql_query` accepts the same input as before:
 
 ```json
 {
-  "mcpServers": {
-    "mysql": {
-      "command": "node",
-      "args": ["/absolute/path/to/mysql-mcp-server/dist/index.js"],
-      "env": {
-        "MYSQL_ENV_FILE": "/absolute/path/to/.env"
-      }
-    }
+  "query": "SELECT id, name FROM shop.products ORDER BY id LIMIT 10",
+  "response_format": "json"
+}
+```
+
+`query` is required and limited to 10,000 characters. `response_format` is optional: `markdown` (default) or `json`. Prefer fully qualified `database.table` names; unqualified names work when `MYSQL_DATABASE` is set.
+
+Successful responses include text in the selected format and matching `structuredContent`:
+
+```json
+{
+  "columns": [{ "name": "id", "type": "LONG" }],
+  "rows": [[1]],
+  "metadata": {
+    "rowCount": 1,
+    "executionTime": 4,
+    "truncated": false
   }
 }
 ```
 
-### Activation
+DML metadata additionally includes `affectedRows`, `insertId`, and `changedRows`. Duplicate column names retain their separate values by position. Safe integers remain numbers; integers beyond JavaScript's exact range and DECIMAL values are strings. Dates serialize as ISO strings, binary values as base64, and SQL `NULL` as JSON `null`.
 
-After configuring:
-1. **Save** the config file
-2. **Restart Claude Desktop** completely (Quit and reopen)
-3. The MySQL server will appear in Claude's available tools
+Both text and structured results have a 25,000-character budget. Truncation removes complete rows, with `metadata.truncated: true`; unusually large column metadata may also be reduced. Use narrower columns, filters, and `LIMIT` to retrieve omitted data. The row limit bounds retained application data; it does not add a SQL `LIMIT` or bound database work. Extra rows are drained and discarded until the request deadline.
 
-### Verify Installation
+### SQL policy
 
-In Claude Desktop, you can verify the server is running by asking:
+| Operation                                                                                                                               | Default mode                      | Write mode                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------- |
+| `SELECT`, `SHOW`, `DESCRIBE` / `DESC`, `EXPLAIN`                                                                                        | Allowed, subject to safety checks | Allowed, subject to safety checks                 |
+| `INSERT`, `UPDATE`, `DELETE`, `REPLACE`                                                                                                 | Blocked                           | Allowed                                           |
+| `BEGIN` / `START TRANSACTION`, savepoints, `COMMIT`, `ROLLBACK`                                                                         | Blocked                           | Allowed within a complete transaction in one call |
+| DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`)                                                                                             | Blocked                           | Blocked                                           |
+| Administrative commands, `CALL`, `SET`, `USE`, `LOAD DATA`                                                                              | Blocked                           | Blocked                                           |
+| File operations, executable comments, session-variable assignments, locking reads, `EXPLAIN ANALYZE`, selected side-effecting built-ins | Blocked                           | Blocked                                           |
 
-```
-"What databases are available?"
-```
+The validator scans MySQL strings, identifiers, comments, CTEs, and statement boundaries. MySQL itself validates full SQL syntax. This is a defense layer, not a sandbox for arbitrary stored functions or UDFs. Use least-privilege grants, especially when write mode is enabled. Views and database routines can perform work that lexical validation cannot see.
 
-Claude should access the `mysql://databases` resource and list your databases.
+### Batches and transactions
 
-## Available Tools
-
-### `mysql_query`
-
-Execute SQL queries against the MySQL database.
-
-**Parameters:**
-- `query` (string, required): SQL query to execute using fully qualified table names
-- `response_format` (enum, optional): `"markdown"` (default) or `"json"`
-
-**Examples:**
+Up to 50 statements can run in one call. Every statement is validated before any execution. Statements run sequentially on one connection; response `results` contains their outputs in order, alongside the first result's legacy fields.
 
 ```sql
--- List all tables in a database
-SHOW TABLES FROM mydb;
-
--- Get table structure
-DESCRIBE mydb.users;
-
--- Query with fully qualified names
-SELECT * FROM shop.orders WHERE status = 'pending' LIMIT 10;
-
--- Join across tables
-SELECT u.name, COUNT(o.id) as order_count
-FROM shop.users u
-LEFT JOIN shop.orders o ON u.id = o.user_id
-GROUP BY u.id
-LIMIT 20;
+START TRANSACTION;
+UPDATE shop.accounts SET balance = balance - 10 WHERE id = 1;
+UPDATE shop.accounts SET balance = balance + 10 WHERE id = 2;
+COMMIT;
 ```
 
-**Write Mode Examples** (when `MYSQL_ALLOW_WRITE=true`):
+An execution failure destroys the connection, rolling back its open InnoDB transaction. Successful writes outside an explicit transaction commit normally, so a later statement failure does not undo those earlier writes. Nontransactional tables do not gain rollback guarantees.
 
-```sql
--- Insert data
-INSERT INTO logs.events (event_type, message, created_at)
-VALUES ('info', 'User login', NOW());
+Timeout or cancellation closes the connection but cannot prove that a write did not commit, or that MySQL stopped all server-side work immediately. **Verify write outcomes before retrying.** The server never automatically retries SQL.
 
--- Update data
-UPDATE shop.products
-SET stock = stock - 1
-WHERE id = 123;
+## Schema resources
 
--- Delete data
-DELETE FROM cache.sessions
-WHERE expires_at < NOW();
+| URI                          | Contents                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `mysql://databases`          | Accessible non-system databases, character sets, collations, table counts |
+| `mysql://{database}`         | Database information and table/view metadata                              |
+| `mysql://{database}/{table}` | Columns, indexes, foreign keys and table statistics                       |
+
+Resources return Markdown. URI-encode each name segment when necessary; identifier case is preserved. Resource discovery includes the database list and database resources, with 100 entries per page. Both parameterized patterns appear in `resources/templates/list`.
+
+Schema filters use prepared parameters. System schemas are omitted from discovery but may be queried when the database account has permission. `mysql://databases` is reserved for the database list. InnoDB row statistics are estimates.
+
+## Passwords and the real Mac trial
+
+Special characters are passed literally to mysql2. Quote dotenv values containing `#`, whitespace, or other special characters, and avoid putting passwords in shell commands or connection URLs. See [password handling](docs/password-handling.md) for exact quoting rules and the limits of what has been reproduced.
+
+Before merge, use the [isolated Mac validation](docs/local-validation.md) with the existing local env file. It forces read-only mode and runs only `SELECT 1` plus MCP metadata checks. Do not run write, rejection, mock, or aggregate suites against that real local setup. No connection file should be copied to the cloud or modified.
+
+## Development and tests
+
+```sh
+corepack enable
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test:coverage
 ```
 
-## MCP Resources
+For integration tests, start a **disposable** database and explicitly provide separate test variables. Tests send only safe reads against existing system schemas and create no database fixtures. Never point cloud tests at a production server.
 
-The server exposes databases and tables as MCP resources for efficient schema exploration:
+```sh
+docker run --rm -d --name mysql-mcp-test \
+  -p 127.0.0.1:3307:3306 -e MYSQL_ROOT_PASSWORD=mcp-test-password mysql:8.4
+# Wait until the database is ready.
+pnpm build
+MYSQL_TEST_HOST=127.0.0.1 MYSQL_TEST_PORT=3307 \
+MYSQL_TEST_USER=root MYSQL_TEST_PASSWORD=mcp-test-password pnpm test:integration
+docker stop mysql-mcp-test
+```
 
-### `mysql://databases`
-List all accessible databases with character sets and table counts.
+CI runs quality checks on Node.js 20.19, 22, 24.15.0 (the Mac trial runtime), and the current 24 release; separate integration jobs exercise MySQL 8.0, MySQL 8.4, and MariaDB 11.4. It also builds an npm tarball for review. Release preparation and approved npm OIDC publication are documented in [docs/releases.md](docs/releases.md); neither is run by ordinary CI.
 
-### `mysql://{database}`
-Get database information and list of all tables with metadata.
+`pnpm test:package` uses the same explicit `MYSQL_TEST_*` variables to build a tarball, install only its runtime dependencies in a temporary directory, inspect its contents, and run the CLI integration suite against the installed package. It requires npm registry access and cleans up afterward.
 
-### `mysql://{database}/{table}`
-Get complete table schema including:
-- Column definitions (name, type, nullable, default, comments)
-- Indexes (name, columns, type, uniqueness)
-- Foreign keys (relationships, cascade rules)
-- Table statistics (row count, data size, engine)
-
-## Operation Modes
-
-### Read-Only Mode (Default)
-
-**Allowed Operations:**
-- `SELECT` - Query data
-- `SHOW` - Show databases, tables, etc.
-- `DESCRIBE` / `DESC` - Show table structure
-- `EXPLAIN` - Analyze query execution
-
-**Blocked Operations:**
-- All write operations (INSERT, UPDATE, DELETE, REPLACE)
-- DDL operations (CREATE, ALTER, DROP, TRUNCATE)
-- Transaction control (START TRANSACTION, COMMIT, ROLLBACK)
-- Administrative commands (GRANT, REVOKE, FLUSH, KILL)
-
-### Write Mode
-
-Enable by setting `MYSQL_ALLOW_WRITE=true`.
-
-**Additionally Allowed:**
-- `INSERT` - Insert new data
-- `UPDATE` - Modify existing data
-- `DELETE` - Remove data
-- `REPLACE` - Replace existing data
-- `START TRANSACTION`, `COMMIT`, `ROLLBACK`, `SAVEPOINT` - Transaction control
-
-**Still Blocked (for safety):**
-- `DROP DATABASE`, `DROP TABLE` - Destructive DDL
-- `TRUNCATE` - Delete all data
-- `GRANT`, `REVOKE` - Permission management
-- `FLUSH`, `KILL`, `LOAD DATA` - Administrative commands
-
-## Security Considerations
-
-### Defense in Depth
-
-The server implements multiple security layers:
-
-1. **Query Parsing**: SQL analysis blocks dangerous operations before execution
-2. **MySQL Permissions**: Database user permissions provide ultimate security boundary
-3. **SSL/TLS**: Encrypted connections protect data in transit
-4. **Query Timeouts**: Prevent long-running queries from consuming resources
-5. **Audit Logging**: All queries are logged to stderr for audit purposes
-
-### Best Practices
-
-- **Use read-only MySQL users** for read-only mode
-- **Grant minimal permissions** to MySQL users (principle of least privilege)
-- **Enable SSL/TLS** for production database connections
-- **Monitor query logs** for suspicious activity
-- **Use write mode sparingly** and only when necessary
-- **Never expose credentials** in configuration files shared publicly
-
-### Query Parser Security
-
-The query parser is designed to be resilient against bypass attempts:
-
-- Case-insensitive keyword detection
-- Comment stripping (both `--` and `/* */` styles)
-- Whitespace normalization
-- Multi-statement query analysis
-- Default-deny for unknown operations
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the project structure and verification workflow, and [SECURITY.md](SECURITY.md) for security boundaries and reporting.
 
 ## Troubleshooting
 
-### Connection Issues
-
-**Error: "Connection refused"**
-- Verify MySQL server is running
-- Check `MYSQL_HOST` and `MYSQL_PORT` are correct
-- Ensure no firewall rules blocking the connection
-
-**Error: "Access denied for user"**
-- Verify `MYSQL_USER` and `MYSQL_PASSWORD` are correct
-- Check user has appropriate permissions: `GRANT SELECT ON *.* TO 'user'@'host';`
-
-### Query Issues
-
-**Error: "Table 'database.table' doesn't exist"**
-- Verify you're using fully qualified names (`database.table`)
-- Use `SHOW TABLES FROM database` to see available tables
-- Check user has permissions on the specific database
-
-**Error: "Query blocked: INSERT not allowed in READ-ONLY mode"**
-- Server is in read-only mode (default)
-- Set `MYSQL_ALLOW_WRITE=true` to enable write operations
-
-**Error: "Query execution timeout"**
-- Query took longer than `MYSQL_QUERY_TIMEOUT` (default 30s)
-- Add `LIMIT` clause to restrict result set size
-- Add `WHERE` clauses for better filtering
-- Optimize query or increase timeout
-
-### Server Issues
-
-**Server won't start**
-- Check all required environment variables are set
-- Verify MySQL credentials are correct
-- Check server logs (stderr output) for specific errors
-
-**Results are truncated**
-- Responses are limited to 25,000 characters
-- Use `LIMIT` clause to restrict row count
-- Select specific columns instead of `SELECT *`
-- Break large queries into smaller, focused queries
-
-## Development
-
-### Setup Development Environment
-
-```bash
-# Install dependencies
-pnpm install
-
-# Development mode (auto-reload)
-pnpm run dev
-
-# Production build
-pnpm run build
-
-# Run linter
-pnpm run lint
-
-# Auto-fix linting issues
-pnpm run lint:fix
-
-# Format code
-pnpm run format
-
-# Check formatting
-pnpm run format:check
-```
-
-### Project Structure
-
-```
-mysql-mcp-server/
-├── src/
-│   ├── index.ts                 # Server entry point
-│   ├── constants.ts             # Configuration constants
-│   ├── types.ts                 # TypeScript type definitions
-│   ├── services/
-│   │   ├── config-loader.ts     # Environment variable loading
-│   │   ├── mysql-client.ts      # Connection pool manager
-│   │   ├── query-parser.ts      # SQL query parser
-│   │   ├── query-executor.ts    # Query execution logic
-│   │   └── metadata-service.ts  # Schema metadata retrieval
-│   ├── schemas/
-│   │   └── tool-schemas.ts      # Zod validation schemas
-│   ├── tools/
-│   │   └── query-tool.ts        # mysql_query tool
-│   ├── resources/
-│   │   ├── database-resource.ts # Database resources
-│   │   └── table-resource.ts    # Table resources
-│   └── utils/
-│       ├── formatters.ts        # Response formatters
-│       ├── error-handlers.ts    # Error handling
-│       └── logger.ts            # Logging utilities
-├── dist/                        # Compiled JavaScript
-├── .env.example                 # Environment template
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-## Performance Tips
-
-- **Use LIMIT**: Always add `LIMIT` clauses for exploratory queries
-- **Filter with WHERE**: Add specific filters to reduce result set size
-- **Select Specific Columns**: Avoid `SELECT *`, choose only needed columns
-- **Use Indexes**: Ensure filtered columns have appropriate indexes
-- **Analyze with EXPLAIN**: Use `EXPLAIN` to understand query execution plans
-- **Monitor Timeouts**: Adjust `MYSQL_QUERY_TIMEOUT` if needed for complex queries
-
-## Documentation
-
-### For Users
-- **[README.md](README.md)** - Complete user documentation (this file)
-- **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Quick start guide with common patterns
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
-
-### For AI Agents
-- **[CLAUDE.md](CLAUDE.md)** - Quick reference for Claude
-- **[AGENTS.md](AGENTS.md)** - Comprehensive integration guide for all AI agents
-
-### For Developers
-- **[spec/](spec/)** - Technical specifications and design documents
-- **[tmp/LOCAL_TESTING_GUIDE.md](tmp/LOCAL_TESTING_GUIDE.md)** - Local testing instructions
-- **[tmp/PUBLISHING_TO_NPM.md](tmp/PUBLISHING_TO_NPM.md)** - npm publishing guide
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. **Fork the repository** and clone your fork
-2. **Install dependencies**: `pnpm install`
-3. **Create a feature branch**: `git checkout -b feature/your-feature`
-4. **Make your changes** following the code style:
-   - Follow TypeScript strict mode conventions
-   - Run `pnpm run lint` and `pnpm run format` before committing
-   - Add tests for new features when applicable
-   - Update documentation for user-facing changes
-5. **Test your changes**: `pnpm run build && pnpm run lint`
-6. **Commit your changes**: Use clear, descriptive commit messages
-7. **Push to your fork** and submit a pull request
-
-Please follow MCP best practices and ensure all CI checks pass.
+- **TLS failure:** inspect the sanitized TLS evidence; inferred signatures are labeled. A separately scoped [TLS-only probe](docs/tls-diagnostics.md) can check certificate-chain, hostname and protocol failures without a MySQL login. It is not the functional acceptance test.
+- **Startup fails:** check Node.js, required variables, the explicit environment file, TLS file permissions, and MySQL grants. Diagnostic logs go to stderr; stdout is reserved for MCP messages. `mysql-startup` events identify the configuration, pool, database connection, and MCP transport phases with fixed error categories; they do not include connection values or raw driver errors.
+- **Unqualified table fails:** set `MYSQL_DATABASE` or use `database.table`.
+- **Query blocked:** check the SQL policy and operation mode. Enable writes only in the server's environment, then restart the client.
+- **Timeout:** narrow the query, inspect its plan, or adjust `MYSQL_QUERY_TIMEOUT`. Check a write's outcome before retrying.
+- **Resource error:** verify the encoded URI and database privileges. Missing resources and database outages are distinguishable protocol failures.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Acknowledgments
-
-- Built with [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk)
-- Uses [mysql2](https://github.com/sidorares/node-mysql2) for MySQL connectivity
-- Input validation with [zod](https://github.com/colinhacks/zod)
-- Environment management with [dotenv](https://github.com/motdotla/dotenv)
-
-## Support
-
-For issues, questions, or contributions:
-- **GitHub Issues**: [github.com/hechtcarmel/mysql-mcp-server/issues](https://github.com/hechtcarmel/mysql-mcp-server/issues)
-- **Documentation**: See files listed above
-- **MCP Protocol**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
-
----
-
-**⚠️ Security Warning**: Always use read-only MySQL users when possible. Enable write mode only when necessary and with appropriate safeguards in place.
+[MIT](LICENSE). Built with the [official MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) and [mysql2](https://github.com/sidorares/node-mysql2).

@@ -1,169 +1,99 @@
-/**
- * Configuration loader for MySQL MCP Server
- * Loads and validates environment variables
- */
-
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
-import { ServerConfig, OperationMode } from '../types.js';
+import { validateCleartextConfig } from './cleartext-auth.js';
+import { ConfigurationError } from '../utils/startup-diagnostics.js';
+import { OperationMode, type ServerConfig } from '../types.js';
 import { DEFAULT_PORT, DEFAULT_POOL_SIZE, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_QUERY_TIMEOUT } from '../constants.js';
 
-/**
- * Parse a boolean environment variable
- */
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-  if (!value) return defaultValue;
-  return value.toLowerCase() === 'true';
+function boolean(value: string | undefined, fallback: boolean, name: string): boolean {
+  if (value === undefined || value === '') return fallback;
+  if (/^true$/i.test(value)) return true;
+  if (/^false$/i.test(value)) return false;
+  throw new ConfigurationError('configuration-boolean-invalid', `${name} must be true or false`);
 }
 
-/**
- * Parse a numeric environment variable with validation
- */
-function parseNumber(value: string | undefined, defaultValue: number, min: number, max: number, name: string): number {
-  if (!value) return defaultValue;
-
-  const parsed = parseInt(value, 10);
-  if (isNaN(parsed)) {
-    throw new Error(`Invalid ${name}: "${value}" is not a valid number`);
-  }
-
-  if (parsed < min || parsed > max) {
-    throw new Error(`Invalid ${name}: ${parsed} is out of range [${min}, ${max}]`);
-  }
-
-  return parsed;
-}
-
-/**
- * Load environment variables from a .env file
- * Supports both MYSQL_ENV_FILE and default .env loading
- */
-function loadEnvFile(): void {
-  // If MYSQL_ENV_FILE is specified, load from that file
-  const envFilePath = process.env.MYSQL_ENV_FILE;
-  if (envFilePath) {
-    try {
-      const result = dotenvConfig({ path: envFilePath, override: false });
-      if (result.error) {
-        throw result.error;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to load .env file from ${envFilePath}: ${errorMessage}`);
-    }
-  } else {
-    // Otherwise, try to load from default .env file in current directory
-    // This is useful when running locally or in development
-    dotenvConfig({ override: false });
-  }
-}
-
-/**
- * Validate required environment variables
- */
-function validateRequiredVars(): void {
-  const required = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD'];
-  const missing: string[] = [];
-
-  for (const varName of required) {
-    if (!process.env[varName]) {
-      missing.push(varName);
-    }
-  }
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(', ')}\n` +
-        'Please set these variables or create a .env file.\n' +
-        'See .env.example for configuration template.'
+function integer(value: string | undefined, fallback: number, min: number, max: number, name: string): number {
+  if (value === undefined || value === '') return fallback;
+  const number = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(number) || number < min || number > max) {
+    throw new ConfigurationError(
+      'configuration-number-invalid',
+      `${name} must be an integer between ${min} and ${max}`
     );
   }
+  return number;
 }
 
-/**
- * Load SSL configuration if provided
- */
-function loadSSLConfig(): ServerConfig['ssl'] | undefined {
-  const sslCA = process.env.MYSQL_SSL_CA;
-  const sslCert = process.env.MYSQL_SSL_CERT;
-  const sslKey = process.env.MYSQL_SSL_KEY;
-
-  if (!sslCA && !sslCert && !sslKey) {
-    return undefined;
+/** Pure parsing entry point: never modifies the process environment or logs secrets. */
+export function parseConfig(env: NodeJS.ProcessEnv): ServerConfig {
+  const missing = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD'].filter(name => !env[name]);
+  if (missing.length)
+    throw new ConfigurationError(
+      'required-configuration-missing',
+      `Missing required environment variables: ${missing.join(', ')}`
+    );
+  const enableCleartextPlugin = boolean(env.MYSQL_ENABLE_CLEARTEXT_PLUGIN, true, 'MYSQL_ENABLE_CLEARTEXT_PLUGIN');
+  const sslEnabled = boolean(env.MYSQL_SSL, false, 'MYSQL_SSL');
+  const rejectUnauthorized = boolean(env.MYSQL_SSL_REJECT_UNAUTHORIZED, true, 'MYSQL_SSL_REJECT_UNAUTHORIZED');
+  if (Boolean(env.MYSQL_SSL_CERT) !== Boolean(env.MYSQL_SSL_KEY)) {
+    throw new ConfigurationError(
+      'tls-configuration-incomplete',
+      'MYSQL_SSL_CERT and MYSQL_SSL_KEY must be configured together'
+    );
   }
-
-  let ca: string | undefined;
-  let cert: string | undefined;
-  let key: string | undefined;
-
-  try {
-    if (sslCA) ca = readFileSync(sslCA, 'utf-8');
-    if (sslCert) cert = readFileSync(sslCert, 'utf-8');
-    if (sslKey) key = readFileSync(sslKey, 'utf-8');
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to read SSL certificate files: ${errorMessage}`);
+  let ssl: ServerConfig['ssl'];
+  if (sslEnabled || env.MYSQL_SSL_CA || env.MYSQL_SSL_CERT || env.MYSQL_SSL_KEY) {
+    try {
+      ssl = {
+        ...(env.MYSQL_SSL_CA && { ca: readFileSync(env.MYSQL_SSL_CA, 'utf8') }),
+        ...(env.MYSQL_SSL_CERT && { cert: readFileSync(env.MYSQL_SSL_CERT, 'utf8') }),
+        ...(env.MYSQL_SSL_KEY && { key: readFileSync(env.MYSQL_SSL_KEY, 'utf8') }),
+        rejectUnauthorized,
+        verifyIdentity: true
+      };
+    } catch {
+      throw new ConfigurationError(
+        'tls-file-unavailable',
+        'Could not read configured MySQL TLS files; check paths and permissions'
+      );
+    }
   }
-
-  return {
-    ca,
-    cert,
-    key,
-    rejectUnauthorized: parseBoolean(process.env.MYSQL_SSL_REJECT_UNAUTHORIZED, true)
+  const config: ServerConfig = {
+    enableCleartextPlugin,
+    host: env.MYSQL_HOST!,
+    port: integer(env.MYSQL_PORT, DEFAULT_PORT, 1, 65535, 'MYSQL_PORT'),
+    user: env.MYSQL_USER!,
+    password: env.MYSQL_PASSWORD!,
+    ...(env.MYSQL_DATABASE && { database: env.MYSQL_DATABASE }),
+    operationMode: boolean(env.MYSQL_ALLOW_WRITE, false, 'MYSQL_ALLOW_WRITE')
+      ? OperationMode.WRITE_ENABLED
+      : OperationMode.READ_ONLY,
+    poolSize: integer(env.MYSQL_POOL_SIZE, DEFAULT_POOL_SIZE, 1, 1000, 'MYSQL_POOL_SIZE'),
+    connectionTimeout: integer(
+      env.MYSQL_CONNECTION_TIMEOUT,
+      DEFAULT_CONNECTION_TIMEOUT,
+      1000,
+      60000,
+      'MYSQL_CONNECTION_TIMEOUT'
+    ),
+    queryTimeout: integer(env.MYSQL_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT, 1000, 600000, 'MYSQL_QUERY_TIMEOUT'),
+    maxRows: integer(env.MYSQL_MAX_ROWS, 1000, 1, 100000, 'MYSQL_MAX_ROWS'),
+    ...(ssl && { ssl })
   };
+  validateCleartextConfig(config);
+  return config;
 }
 
-/**
- * Load and validate server configuration from environment variables
- */
-export function loadConfig(): ServerConfig {
-  // Load .env file if specified
-  loadEnvFile();
-
-  // Validate required variables
-  validateRequiredVars();
-
-  // Parse operation mode
-  const allowWrite = parseBoolean(process.env.MYSQL_ALLOW_WRITE, false);
-  const operationMode = allowWrite ? OperationMode.WRITE_ENABLED : OperationMode.READ_ONLY;
-
-  // Parse connection parameters
-  const host = process.env.MYSQL_HOST!;
-  const port = parseNumber(process.env.MYSQL_PORT, DEFAULT_PORT, 1, 65535, 'MYSQL_PORT');
-  const user = process.env.MYSQL_USER!;
-  const password = process.env.MYSQL_PASSWORD!;
-  const database = process.env.MYSQL_DATABASE;
-
-  // Parse pool configuration
-  const poolSize = parseNumber(process.env.MYSQL_POOL_SIZE, DEFAULT_POOL_SIZE, 1, 1000, 'MYSQL_POOL_SIZE');
-  const connectionTimeout = parseNumber(
-    process.env.MYSQL_CONNECTION_TIMEOUT,
-    DEFAULT_CONNECTION_TIMEOUT,
-    1000,
-    60000,
-    'MYSQL_CONNECTION_TIMEOUT'
-  );
-  const queryTimeout = parseNumber(
-    process.env.MYSQL_QUERY_TIMEOUT,
-    DEFAULT_QUERY_TIMEOUT,
-    1000,
-    600000,
-    'MYSQL_QUERY_TIMEOUT'
-  );
-
-  // Load SSL configuration
-  const ssl = loadSSLConfig();
-
-  return {
-    host,
-    port,
-    user,
-    password,
-    database,
-    operationMode,
-    poolSize,
-    connectionTimeout,
-    queryTimeout,
-    ssl
-  };
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {
+  // dotenv must stay quiet: stdout belongs exclusively to the MCP transport.
+  const result = dotenvConfig({
+    path: env.MYSQL_ENV_FILE || resolve(cwd, '.env'),
+    processEnv: env,
+    override: false,
+    quiet: true
+  });
+  if (result.error && env.MYSQL_ENV_FILE)
+    throw new ConfigurationError('configuration-file-unavailable', 'Failed to load MYSQL_ENV_FILE');
+  return parseConfig(env);
 }

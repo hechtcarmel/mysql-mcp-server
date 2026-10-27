@@ -1,149 +1,207 @@
-/**
- * MySQL client with connection pool management
- */
+import mysql from 'mysql2';
+import { Duplex } from 'node:stream';
+import type { Pool, PoolConnection, FieldPacket, ResultSetHeader, RowDataPacket } from 'mysql2';
+import { OperationMode, type ServerConfig, type MySQLQueryResult } from '../types.js';
+import { CHARACTER_LIMIT } from '../constants.js';
+import { cleartextAuthOptions } from './cleartext-auth.js';
+import type { Statement } from './query-parser.js';
 
-import mysql from 'mysql2/promise';
-import type { Pool, PoolOptions, QueryOptions } from 'mysql2/promise';
-import { ServerConfig, MySQLQueryResult } from '../types.js';
-import { logInfo, logError } from '../utils/logger.js';
+export interface StatementResult {
+  rows: unknown[][] | ResultSetHeader;
+  fields: FieldPacket[];
+  truncated: boolean;
+}
 
-/**
- * MySQL client class that manages connection pool and query execution
- */
+/** The pool never accepts multi-statements. Validated batches execute one statement at a time. */
 export class MySQLClient {
   private pool: Pool | null = null;
-  private config: ServerConfig;
+  private closing: Promise<void> | undefined;
+  private activeConnections = new Set<PoolConnection>();
+  private cancellations = new Set<(error: Error) => void>();
 
-  constructor(config: ServerConfig) {
-    this.config = config;
-  }
+  constructor(private readonly config: ServerConfig) {}
 
-  /**
-   * Initialize the connection pool
-   */
   initialize(): void {
-    const poolConfig: PoolOptions = {
+    if (this.pool) return;
+    if (this.closing) throw new Error('MySQL client is closing');
+    this.pool = mysql.createPool({
       host: this.config.host,
       port: this.config.port,
       user: this.config.user,
       password: this.config.password,
       database: this.config.database,
+      ...cleartextAuthOptions(this.config),
       connectionLimit: this.config.poolSize,
       connectTimeout: this.config.connectionTimeout,
       waitForConnections: true,
-      queueLimit: 0,
+      queueLimit: this.config.poolSize * 10,
       enableKeepAlive: true,
-      keepAliveInitialDelay: 0
-    };
+      multipleStatements: false,
+      supportBigNumbers: true,
+      bigNumberStrings: false,
+      dateStrings: false,
+      decimalNumbers: false
+    });
+  }
 
-    // Add SSL configuration if provided
-    if (this.config.ssl) {
-      poolConfig.ssl = {
-        ca: this.config.ssl.ca,
-        cert: this.config.ssl.cert,
-        key: this.config.ssl.key,
-        rejectUnauthorized: this.config.ssl.rejectUnauthorized
+  /** Includes pool wait, execution, and cleanup in one deadline; late acquisitions are destroyed. */
+  private async withConnection<T>(
+    work: (connection: PoolConnection) => Promise<T>,
+    signal?: AbortSignal,
+    timeout = this.config.queryTimeout
+  ): Promise<T> {
+    const pool = this.pool;
+    if (!pool || this.closing) throw new Error('MySQL client is not running');
+    signal?.throwIfAborted();
+    let connection: PoolConnection | undefined;
+    let cancelled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let abort: () => void = () => {};
+    let cancel: (error: Error) => void = () => {};
+    const stopped = new Promise<never>((_, reject) => {
+      cancel = (error: Error): void => {
+        if (cancelled) return;
+        cancelled = true;
+        if (connection) this.destroyConnection(connection);
+        reject(error);
       };
-    }
-
+      this.cancellations.add(cancel);
+      abort = () => cancel(new Error('Query cancelled; a write may have completed before cancellation'));
+      signal?.addEventListener('abort', abort, { once: true });
+      timer = setTimeout(
+        () =>
+          cancel(
+            Object.assign(new Error(`Query execution timeout exceeded (${timeout}ms); a write may have completed`), {
+              code: 'MYSQL_REQUEST_TIMEOUT'
+            })
+          ),
+        timeout
+      );
+    });
+    const operation = (async () => {
+      connection = await new Promise<PoolConnection>((resolve, reject) => {
+        pool.getConnection((error, acquired) => (error ? reject(error) : resolve(acquired)));
+      });
+      if (cancelled || this.closing) {
+        this.destroyConnection(connection);
+        throw new Error('Query cancelled');
+      }
+      this.activeConnections.add(connection);
+      try {
+        const value = await work(connection);
+        if (!cancelled) connection.release();
+        return value;
+      } catch (error) {
+        // Never put a failed or partially consumed session back into the pool.
+        this.destroyConnection(connection);
+        throw error;
+      } finally {
+        this.activeConnections.delete(connection);
+      }
+    })();
     try {
-      this.pool = mysql.createPool(poolConfig);
-      logInfo('MySQL connection pool created successfully');
-    } catch (error) {
-      logError('Failed to create MySQL connection pool', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to initialize MySQL client: ${errorMessage}`);
+      return await Promise.race([operation, stopped]);
+    } finally {
+      clearTimeout(timer);
+      this.cancellations.delete(cancel);
+      signal?.removeEventListener('abort', abort);
     }
   }
 
-  /**
-   * Test database connection
-   */
   async testConnection(): Promise<boolean> {
-    if (!this.pool) {
-      throw new Error('MySQL client not initialized. Call initialize() first.');
-    }
-
-    try {
-      await this.pool.query('SELECT 1');
-      logInfo('✓ Database connection test successful');
-      return true;
-    } catch (error) {
-      logError('✗ Database connection test failed', error);
-      return false;
-    }
+    // Connectivity needs only the text protocol, as in the previous release.
+    // Do not require prepared-statement support for this fixed constant read.
+    await this.withConnection(async connection => {
+      await connection.promise().query('SELECT 1');
+    });
+    return true;
   }
 
-  /**
-   * Execute a SQL query with timeout
-   */
-  async executeQuery(sql: string, timeout?: number): Promise<MySQLQueryResult> {
-    if (!this.pool) {
-      throw new Error('MySQL client not initialized. Call initialize() first.');
-    }
+  /** Internal metadata uses actual prepared parameters, never interpolation. */
+  async executeQuery(sql: string, values: readonly string[] = [], signal?: AbortSignal): Promise<MySQLQueryResult> {
+    return this.withConnection(async connection => {
+      const [rows, fields] = await connection.promise().execute<RowDataPacket[] | ResultSetHeader>(sql, [...values]);
+      return [rows, fields];
+    }, signal);
+  }
 
-    const queryTimeout = timeout || this.config.queryTimeout;
-
-    try {
-      const queryOptions: QueryOptions = {
-        sql,
-        timeout: queryTimeout
-      };
-
-      const result = await this.pool.query(queryOptions);
-      return result as MySQLQueryResult;
-    } catch (error) {
-      // Re-throw with more context
-      if (error instanceof Error) {
-        if (error.message.includes('timeout')) {
-          throw new Error(`Query execution timeout exceeded (${queryTimeout}ms)`);
+  async executeStatements(statements: Statement[], signal?: AbortSignal): Promise<StatementResult[]> {
+    return this.withConnection(async connection => {
+      const readonly = this.config.operationMode === OperationMode.READ_ONLY;
+      if (readonly) await connection.promise().query('START TRANSACTION READ ONLY');
+      const results: StatementResult[] = [];
+      let remainingRows = this.config.maxRows;
+      let remainingCharacters = CHARACTER_LIMIT;
+      for (const statement of statements) {
+        signal?.throwIfAborted();
+        const result = await this.streamQuery(connection, statement.sql, remainingRows, remainingCharacters);
+        results.push(result);
+        if (Array.isArray(result.rows)) {
+          remainingRows -= result.rows.length;
+          remainingCharacters -= JSON.stringify(result.rows).length;
         }
       }
-      throw error;
-    }
+      // Also clears savepoints and any implicit transaction state before pool reuse.
+      await connection.promise().query('ROLLBACK');
+      return results;
+    }, signal);
   }
 
-  /**
-   * Get a connection from the pool for manual transaction management
-   */
-  async getConnection(): Promise<mysql.PoolConnection> {
-    if (!this.pool) {
-      throw new Error('MySQL client not initialized. Call initialize() first.');
-    }
-
-    return await this.pool.getConnection();
+  private streamQuery(
+    connection: PoolConnection,
+    sql: string,
+    maxRows: number,
+    maxCharacters: number
+  ): Promise<StatementResult> {
+    return new Promise((resolve, reject) => {
+      let fields: FieldPacket[] = [];
+      const rows: unknown[][] = [];
+      let header: ResultSetHeader | undefined;
+      let size = 0;
+      let truncated = false;
+      // Event mode avoids mysql2 buffering the full result set. Surplus rows are discarded.
+      const query = connection.query({ sql, rowsAsArray: true });
+      query.on('fields', (value: FieldPacket[]) => {
+        fields = value;
+      });
+      query.on('result', (row: unknown[] | ResultSetHeader) => {
+        if (!Array.isArray(row)) {
+          header = row;
+          return;
+        }
+        const length = JSON.stringify(row).length;
+        if (truncated || rows.length >= maxRows || size + length > maxCharacters) {
+          truncated = true;
+          return;
+        }
+        size += length;
+        rows.push(row);
+      });
+      query.on('error', reject);
+      query.on('end', () => resolve({ rows: header ?? rows, fields, truncated }));
+    });
   }
 
-  /**
-   * Close the connection pool gracefully
-   */
-  async close(): Promise<void> {
-    if (this.pool) {
-      try {
-        await this.pool.end();
-        logInfo('MySQL connection pool closed successfully');
-        this.pool = null;
-      } catch (error) {
-        logError('Error closing MySQL connection pool', error);
-        throw error;
-      }
-    }
+  private destroyConnection(connection: PoolConnection): void {
+    this.activeConnections.delete(connection);
+    connection.destroy();
+    // mysql2 3.x destroy() only calls stream.end(): a running query can keep the
+    // socket alive indefinitely. Isolate this driver-specific seam and force-close
+    // its TCP/TLS transport so cancellation and process shutdown really finish.
+    const stream: unknown = Reflect.get(connection, 'stream');
+    if (stream instanceof Duplex) stream.destroy();
   }
 
-  /**
-   * Get pool statistics
-   */
-  getPoolStats(): { totalConnections: number; activeConnections: number; idleConnections: number } | null {
-    if (!this.pool) {
-      return null;
-    }
-
-    // Note: mysql2 doesn't expose detailed pool stats directly
-    // This is a placeholder for future enhancement
-    return {
-      totalConnections: this.config.poolSize,
-      activeConnections: 0, // Not available in mysql2
-      idleConnections: 0 // Not available in mysql2
-    };
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    const pool = this.pool;
+    this.pool = null;
+    for (const cancel of this.cancellations) cancel(new Error('MySQL client is shutting down'));
+    for (const connection of this.activeConnections) this.destroyConnection(connection);
+    this.activeConnections.clear();
+    this.closing = pool
+      ? new Promise<void>((resolve, reject) => pool.end(error => (error ? reject(error) : resolve())))
+      : Promise.resolve();
+    return this.closing;
   }
 }

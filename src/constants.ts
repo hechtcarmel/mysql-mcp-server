@@ -38,7 +38,5 @@ export const SYSTEM_DATABASES = ['information_schema', 'performance_schema', 'my
  */
 export const MAX_QUERY_LENGTH = 10000;
 
-/**
- * Maximum length for truncated query in logs
- */
-export const LOG_QUERY_TRUNCATE_LENGTH = 200;
+/** Maximum independently validated statements in one query call. */
+export const MAX_STATEMENTS = 50;

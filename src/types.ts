@@ -2,7 +2,7 @@
  * Type definitions for MySQL MCP Server
  */
 
-import type { RowDataPacket, OkPacket, FieldPacket } from 'mysql2/promise';
+import type { RowDataPacket, ResultSetHeader, FieldPacket } from 'mysql2/promise';
 
 /**
  * Operation mode for the server
@@ -62,6 +62,7 @@ export interface ServerConfig {
   port: number;
   user: string;
   password: string;
+  enableCleartextPlugin: boolean;
   database?: string;
 
   // Operation mode
@@ -71,6 +72,7 @@ export interface ServerConfig {
   poolSize: number;
   connectionTimeout: number;
   queryTimeout: number;
+  maxRows: number;
 
   // SSL configuration
   ssl?: {
@@ -78,6 +80,7 @@ export interface ServerConfig {
     cert?: string;
     key?: string;
     rejectUnauthorized: boolean;
+    verifyIdentity?: boolean;
   };
 }
 
@@ -104,7 +107,7 @@ export interface QueryResult {
 
   // For DML queries
   affectedRows?: number;
-  insertId?: number;
+  insertId?: number | string;
   changedRows?: number;
 
   // Metadata
@@ -112,6 +115,7 @@ export interface QueryResult {
   executionTime: number;
   warnings?: string[];
   truncated?: boolean;
+  results?: QueryResult[];
 }
 
 /**
@@ -192,7 +196,7 @@ export interface TableSchema {
     dataLength: number;
     maxDataLength: number;
     indexLength: number;
-    autoIncrement: number | null;
+    autoIncrement: number | string | null;
     createTime: Date | null;
     updateTime: Date | null;
     comment: string;
@@ -218,4 +222,4 @@ export interface DatabaseResource {
 /**
  * MySQL query result types from mysql2
  */
-export type MySQLQueryResult = [RowDataPacket[] | RowDataPacket[][] | OkPacket | OkPacket[], FieldPacket[]];
+export type MySQLQueryResult = [RowDataPacket[] | ResultSetHeader, FieldPacket[]];

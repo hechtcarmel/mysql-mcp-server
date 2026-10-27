@@ -38,3 +38,7 @@ tmp/
 # Package manager locks (we use pnpm)
 package-lock.json
 yarn.lock
+
+# Local review/release artifacts
+artifacts/
+*.tgz
